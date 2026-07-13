@@ -345,8 +345,10 @@ let APP={
 // UTILS
 // ===================================================
 function getToday(){
+  // 日本時間（JST=UTC+9）で日付を取得
   const n=new Date();
-  return `${n.getFullYear()}${String(n.getMonth()+1).padStart(2,'0')}${String(n.getDate()).padStart(2,'0')}`;
+  const jst=new Date(n.getTime()+9*60*60*1000);
+  return `${jst.getUTCFullYear()}${String(jst.getUTCMonth()+1).padStart(2,'0')}${String(jst.getUTCDate()).padStart(2,'0')}`;
 }
 function showPage(name,btn){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
@@ -412,7 +414,12 @@ async function loadTodayData(){
   if(!APP.rawPrograms.length){
     stEl.innerHTML=`<span class="dot yellow"></span><span>データなし</span>`;
     document.getElementById('venueGrid').innerHTML=
-      `<div class="alert alert-warn" style="grid-column:1/-1;">本日の出走表データが見つかりません（開催がない、またはAPIがまだ更新されていない可能性があります）</div>`;
+      `<div class="alert alert-warn" style="grid-column:1/-1;">
+        本日（${ymd}）の出走表データが見つかりません。<br>
+        <span class="text-xs">・APIは30分ごとに更新されます（朝8時ごろから順次反映）<br>
+        ・今日の開催情報は <a href="https://www.boatrace.jp" target="_blank" style="color:var(--teal);">boatrace.jp</a> でご確認ください</span><br>
+        <button class="btn btn-sm btn-primary mt1" onclick="loadTodayData()">再取得</button>
+      </div>`;
     return;
   }
 
@@ -626,19 +633,36 @@ async function loadSessionResults(v, rno){
         };
         const WEATHER_MAP={1:'晴れ',2:'曇り',3:'雨',4:'小雨',5:'霧'};
         const windDirNum=prevRace.wind_direction_number;
-        const windDir=WIND_DIR_MAP[windDirNum]||'不明';
-        const weather=WEATHER_MAP[prevRace.weather_number]||'不明';
+        const windDir=windDirNum!=null ? (WIND_DIR_MAP[windDirNum]||'不明') : null;
+        const weatherNum=prevRace.weather_number;
+        const weather=weatherNum!=null ? (WEATHER_MAP[weatherNum]||'不明') : null;
+        const windSpeed=parseFloat(prevRace.wind_speed||0);
+        const wave=parseFloat(prevRace.wave_height||0);
+        const airTemp=prevRace.air_temperature;
+        const waterTemp=prevRace.water_temperature;
+
+        // データが全部0/nullの場合はAPIがまだ未更新
+        const hasWeatherData = windDir!=null || weatherNum!=null || windSpeed>0 || wave>0;
 
         APP.weather={
-          condition:  weather,
-          temp:       prevRace.air_temperature!=null?prevRace.air_temperature+'℃':'―',
-          waterTemp:  prevRace.water_temperature!=null?prevRace.water_temperature+'℃':'―',
-          windSpeed:  parseFloat(prevRace.wind_speed||0),
-          windDir:    windDir,
-          wave:       parseFloat(prevRace.wave_height||0),
+          condition:  weather||'―',
+          temp:       airTemp>0 ? airTemp+'℃' : '―',
+          waterTemp:  waterTemp>0 ? waterTemp+'℃' : '―',
+          windSpeed:  windSpeed,
+          windDir:    windDir||'―',
+          wave:       wave,
+          pending:    !hasWeatherData, // データ未取得フラグ
         };
-        // ★ 天候表示を更新
         renderWeather(APP.weather, APP.selectedVenue);
+
+        // データ未取得の場合は5分後に自動再取得
+        if(!hasWeatherData){
+          if(APP._weatherRetryTimer) clearTimeout(APP._weatherRetryTimer);
+          APP._weatherRetryTimer=setTimeout(()=>{
+            console.log('[自動再取得] 天候データを再取得します');
+            loadRacePanel();
+          }, 5*60*1000);
+        }
 
         // ── 各艇の展示情報を更新（v3フィールド名）──────────
         // boats はオブジェクト形式: {"1":{...},"2":{...},...}
@@ -861,13 +885,23 @@ function renderWeather(wx,v){
   const vc=VENUE_CHARS[v?v.code:'01']||{in1:54,char:''};
   const dm={'北':'↓','南':'↑','東':'←','西':'→','北東':'↙','北西':'↘','南東':'↖','南西':'↗'};
   const wi={'晴':'☀️','晴れ':'☀️','曇':'☁️','曇り':'☁️','雨':'🌧️','小雨':'🌦️','曇一時雨':'🌦️'}[wx.condition]||'🌊';
+
+  // データ未取得（API未更新）の場合
+  const pending = wx.pending || (!wx.windDir||wx.windDir==='―') && !wx.windSpeed && !wx.wave;
+  const pendingBadge = pending
+    ? `<div style="grid-column:1/-1;font-size:.72rem;color:var(--gold);padding:.3rem .5rem;background:var(--gold)15;border-radius:4px;display:flex;align-items:center;gap:8px;">
+        ⏳ 天候データ取得待ち（APIが未更新）
+        <button onclick="loadRacePanel()" style="font-size:.68rem;padding:2px 8px;background:var(--gold);color:#000;border:none;border-radius:3px;cursor:pointer;">今すぐ再取得</button>
+       </div>` : '';
+
   document.getElementById('wxGrid').innerHTML=`
-    <div class="wx-card"><div class="wx-lbl">天候</div><div class="wx-val" style="font-size:.95rem;">${wi} ${wx.condition||'―'}</div></div>
+    ${pendingBadge}
+    <div class="wx-card"><div class="wx-lbl">天候</div><div class="wx-val" style="font-size:.95rem;">${pending?'―':wi+' '+(wx.condition||'―')}</div></div>
     <div class="wx-card"><div class="wx-lbl">気温</div><div class="wx-val">${wx.temp||'―'}</div></div>
     <div class="wx-card"><div class="wx-lbl">水温</div><div class="wx-val">${wx.waterTemp||'―'}</div></div>
-    <div class="wx-card"><div class="wx-lbl">風速(m)</div><div class="wx-val">${wx.windSpeed||0}</div></div>
-    <div class="wx-card"><div class="wx-lbl">風向</div><div class="wx-val">${dm[wx.windDir]||'?'} ${wx.windDir||'―'}</div></div>
-    <div class="wx-card"><div class="wx-lbl">波高(cm)</div><div class="wx-val">${wx.wave||0}</div></div>`;
+    <div class="wx-card"><div class="wx-lbl">風速(m)</div><div class="wx-val">${pending?'―':wx.windSpeed||0}</div></div>
+    <div class="wx-card"><div class="wx-lbl">風向</div><div class="wx-val">${pending?'―':(dm[wx.windDir]||'?')+' '+(wx.windDir||'―')}</div></div>
+    <div class="wx-card"><div class="wx-lbl">波高(cm)</div><div class="wx-val">${pending?'―':wx.wave||0}</div></div>`;
   document.getElementById('venueCharText').textContent=vc.char||'特性データなし';
   const spd=wx.windSpeed||0,dir=wx.windDir||'';
   const alertEl=document.getElementById('windAlert');

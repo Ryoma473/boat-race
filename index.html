@@ -466,6 +466,11 @@ async function loadTodayData(){
     console.warn('[results取得失敗]',e.message);
   }
 
+  // キャッシュ完了後、現在選択中のレースの天候を即座に再適用
+  if(APP.selectedVenue&&APP.selectedRace){
+    applyPreviewData(APP.selectedVenue, APP.selectedRace);
+  }
+
   // 10分ごとにpreviewsとresultsを自動更新
   if(APP._previewsRefreshTimer) clearInterval(APP._previewsRefreshTimer);
   APP._previewsRefreshTimer=setInterval(async()=>{

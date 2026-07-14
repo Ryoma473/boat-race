@@ -662,11 +662,16 @@ function applyPreviewData(v, rno){
   const key=`${venueCode}-${raceNo}`;
   let p=APP.previewsCache?.[key];
 
-  // 該当レースのデータがない場合→同じ場の最新データを流用
+  // 該当レースのデータがない場合→同じ場の直近レースを流用
   if(!p){
     const sameVenueKeys=Object.keys(APP.previewsCache||{})
       .filter(k=>k.startsWith(`${venueCode}-`))
-      .sort((a,b)=>parseInt(b.split('-')[1])-parseInt(a.split('-')[1]));
+      .sort((a,b)=>{
+        // 選択レースに最も近い番号を優先
+        const da=Math.abs(parseInt(a.split('-')[1])-raceNo);
+        const db=Math.abs(parseInt(b.split('-')[1])-raceNo);
+        return da-db;
+      });
     if(sameVenueKeys.length>0){
       p=APP.previewsCache[sameVenueKeys[0]];
       console.log(`[preview流用] ${v.name} ${rno}R → ${sameVenueKeys[0]}のデータを使用`);

@@ -416,110 +416,6 @@ async function loadTodayData(){
     return;
   }
 
-  // previews一括取得してキャッシュ
-  APP.previewsCache={};
-  for(const url of prevUrls){
-    try{
-      const res=await fetch(url,{cache:'no-cache'});
-      if(!res.ok) continue;
-      const pd=await res.json();
-      const arr=Array.isArray(pd)?pd:(pd.previews||[]);
-      arr.forEach(p=>{
-        const st=parseInt(p.stadium_number||p.race_stadium_number);
-        const rn=parseInt(p.number||p.race_number);
-        if(st&&rn) APP.previewsCache[`${st}-${rn}`]=p;
-      });
-      console.log(`[previews一括取得] ${arr.length}件キャッシュ完了`);
-      if(arr.length>0) break;
-    }catch(e){
-      console.warn('[previews取得失敗]',e.message);
-    }
-  }
-
-  // results APIからも天候データを補完（previewsが0件の場合に有効）
-  try{
-    const resUrls=[
-      'https://boatraceopenapi.github.io/results/v3/today.json',
-      `https://boatraceopenapi.github.io/results/v3/${yyyy}/${ymd}.json`,
-    ];
-    for(const url of resUrls){
-      const res=await fetch(url,{cache:'no-cache'});
-      if(!res.ok) continue;
-      const rd=await res.json();
-      const arr=Array.isArray(rd)?rd:(rd.results||[]);
-      let added=0;
-      arr.forEach(r=>{
-        const st=parseInt(r.stadium_number);
-        const rn=parseInt(r.number);
-        if(!st||!rn) return;
-        const key=`${st}-${rn}`;
-        // previewsになければresultsで補完
-        if(!APP.previewsCache[key]&&r.wind_speed!=null){
-          APP.previewsCache[key]=r;
-          added++;
-        }
-      });
-      console.log(`[results天候補完] ${added}件追加（合計${Object.keys(APP.previewsCache).length}件）`);
-      if(arr.length>0) break;
-    }
-  }catch(e){
-    console.warn('[results取得失敗]',e.message);
-  }
-
-  // キャッシュ完了後、現在選択中のレースの天候を即座に再適用
-  if(APP.selectedVenue&&APP.selectedRace){
-    applyPreviewData(APP.selectedVenue, APP.selectedRace);
-  }
-
-  // 10分ごとにpreviewsとresultsを自動更新
-  if(APP._previewsRefreshTimer) clearInterval(APP._previewsRefreshTimer);
-  APP._previewsRefreshTimer=setInterval(async()=>{
-    // previews更新
-    for(const url of prevUrls){
-      try{
-        const res=await fetch(url,{cache:'no-cache'});
-        if(!res.ok) continue;
-        const pd=await res.json();
-        const arr=Array.isArray(pd)?pd:(pd.previews||[]);
-        arr.forEach(p=>{
-          const st=parseInt(p.stadium_number||p.race_stadium_number);
-          const rn=parseInt(p.number||p.race_number);
-          if(st&&rn) APP.previewsCache[`${st}-${rn}`]=p;
-        });
-        if(arr.length>0) break;
-      }catch(e){}
-    }
-    // results補完更新
-    try{
-      const res=await fetch('https://boatraceopenapi.github.io/results/v3/today.json',{cache:'no-cache'});
-      if(res.ok){
-        const rd=await res.json();
-        const arr=Array.isArray(rd)?rd:(rd.results||[]);
-        arr.forEach(r=>{
-          const st=parseInt(r.stadium_number);
-          const rn=parseInt(r.number);
-          const key=`${st}-${rn}`;
-          if(st&&rn&&r.wind_speed!=null){
-            // resultsは天候のみ補完（展示データはpreviewsを優先）
-            if(!APP.previewsCache[key]) APP.previewsCache[key]=r;
-            else if(!APP.previewsCache[key].wind_speed) Object.assign(APP.previewsCache[key],{
-              wind_speed:r.wind_speed,
-              wind_direction_number:r.wind_direction_number,
-              wave_height:r.wave_height,
-              weather_number:r.weather_number,
-              air_temperature:r.air_temperature,
-              water_temperature:r.water_temperature,
-            });
-          }
-        });
-      }
-    }catch(e){}
-    // 現在表示中のレースの天候を再描画
-    if(APP.selectedVenue&&APP.selectedRace){
-      applyPreviewData(APP.selectedVenue,APP.selectedRace);
-    }
-    console.log(`[自動更新] キャッシュ${Object.keys(APP.previewsCache).length}件`);
-  }, 10*60*1000);
 
   // programs 配列を取り出す
   APP.rawPrograms = Array.isArray(data) ? data : (data.programs||[]);
@@ -542,6 +438,52 @@ async function loadTodayData(){
     if(c>=1&&c<=24) codeSet.add(String(c).padStart(2,'0'));
   });
   APP.openVenues=VENUES.filter(v=>codeSet.has(v.code));
+  stEl.innerHTML=`<span class="dot green"></span><span>本日 ${APP.openVenues.length}場 開催（天候データ取得中...）</span>`;
+
+  // ━━ results取得（天候データ）を先に完了させてからレース場を表示 ━━
+  APP.previewsCache={};
+  try{
+    const resUrls=[
+      'https://boatraceopenapi.github.io/results/v3/today.json',
+      `https://boatraceopenapi.github.io/results/v3/${yyyy}/${ymd}.json`,
+    ];
+    for(const url of resUrls){
+      const res=await fetch(url,{cache:'no-cache'});
+      if(!res.ok) continue;
+      const rd=await res.json();
+      const arr=Array.isArray(rd)?rd:(rd.results||[]);
+      arr.forEach(r=>{
+        const st=parseInt(r.stadium_number);
+        const rn=parseInt(r.number);
+        if(st&&rn&&r.wind_speed!=null){
+          APP.previewsCache[`${st}-${rn}`]=r;
+        }
+      });
+      const cnt=Object.keys(APP.previewsCache).length;
+      console.log(`[results天候] ${cnt}件取得完了`);
+      if(arr.length>0) break;
+    }
+  }catch(e){
+    console.warn('[results取得失敗]',e.message);
+  }
+
+  // 10分ごとに自動更新
+  if(APP._previewsRefreshTimer) clearInterval(APP._previewsRefreshTimer);
+  APP._previewsRefreshTimer=setInterval(async()=>{
+    try{
+      const res=await fetch('https://boatraceopenapi.github.io/results/v3/today.json',{cache:'no-cache'});
+      if(!res.ok) return;
+      const rd=await res.json();
+      const arr=Array.isArray(rd)?rd:(rd.results||[]);
+      arr.forEach(r=>{
+        const st=parseInt(r.stadium_number);
+        const rn=parseInt(r.number);
+        if(st&&rn&&r.wind_speed!=null) APP.previewsCache[`${st}-${rn}`]=r;
+      });
+      if(APP.selectedVenue&&APP.selectedRace) applyPreviewData(APP.selectedVenue,APP.selectedRace);
+    }catch(e){}
+  },10*60*1000);
+
   stEl.innerHTML=`<span class="dot green"></span><span>本日 ${APP.openVenues.length}場 開催</span>`;
   renderVenues();
 }
@@ -716,8 +658,20 @@ async function loadRacePanel(){
 // ── キャッシュからpreviewデータを適用 ────────────────
 function applyPreviewData(v, rno){
   const venueCode=parseInt(v.code);
-  const key=`${venueCode}-${parseInt(rno)}`;
-  const p=APP.previewsCache?.[key];
+  const raceNo=parseInt(rno);
+  const key=`${venueCode}-${raceNo}`;
+  let p=APP.previewsCache?.[key];
+
+  // 該当レースのデータがない場合→同じ場の最新データを流用
+  if(!p){
+    const sameVenueKeys=Object.keys(APP.previewsCache||{})
+      .filter(k=>k.startsWith(`${venueCode}-`))
+      .sort((a,b)=>parseInt(b.split('-')[1])-parseInt(a.split('-')[1]));
+    if(sameVenueKeys.length>0){
+      p=APP.previewsCache[sameVenueKeys[0]];
+      console.log(`[preview流用] ${v.name} ${rno}R → ${sameVenueKeys[0]}のデータを使用`);
+    }
+  }
 
   const WIND_DIR_MAP={
     1:'北',2:'北北東',3:'北東',4:'東北東',5:'東',6:'東南東',
@@ -784,7 +738,7 @@ async function loadSessionResults(v, rno){
   const yyyy=ymd.slice(0,4);
   const venueCode=parseInt(v.code);
 
-  // ── 直前情報（キャッシュから即座に適用）────────────────
+  // ── 直前情報（キャッシュから適用）──────────────────────
   applyPreviewData(v, rno);
 
   // ── 今節成績の取得 ──────────────────────────────────

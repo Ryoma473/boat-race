@@ -655,13 +655,20 @@ async function loadSessionResults(v, rno){
         };
         renderWeather(APP.weather, APP.selectedVenue);
 
-        // データ未取得の場合は5分後に自動再取得
+        // データ未取得の場合は2分ごとに自動再取得（最大10回）
         if(!hasWeatherData){
           if(APP._weatherRetryTimer) clearTimeout(APP._weatherRetryTimer);
-          APP._weatherRetryTimer=setTimeout(()=>{
-            console.log('[自動再取得] 天候データを再取得します');
-            loadRacePanel();
-          }, 5*60*1000);
+          APP._weatherRetryCount=(APP._weatherRetryCount||0)+1;
+          if(APP._weatherRetryCount<=10){
+            APP._weatherRetryTimer=setTimeout(()=>{
+              console.log(`[自動再取得] 天候データ再取得中... (${APP._weatherRetryCount}回目)`);
+              loadSessionResults(APP.selectedVenue, APP.selectedRace);
+            }, 2*60*1000);
+          }
+        } else {
+          // データが取れたらカウントリセット
+          APP._weatherRetryCount=0;
+          if(APP._weatherRetryTimer) clearTimeout(APP._weatherRetryTimer);
         }
 
         // ── 各艇の展示情報を更新（v3フィールド名）──────────
@@ -890,8 +897,8 @@ function renderWeather(wx,v){
   const pending = wx.pending || (!wx.windDir||wx.windDir==='―') && !wx.windSpeed && !wx.wave;
   const pendingBadge = pending
     ? `<div style="grid-column:1/-1;font-size:.72rem;color:var(--gold);padding:.3rem .5rem;background:var(--gold)15;border-radius:4px;display:flex;align-items:center;gap:8px;">
-        ⏳ 天候データ取得待ち（APIが未更新）
-        <button onclick="loadRacePanel()" style="font-size:.68rem;padding:2px 8px;background:var(--gold);color:#000;border:none;border-radius:3px;cursor:pointer;">今すぐ再取得</button>
+        ⏳ 天候データ取得待ち（APIが未更新・2分ごとに自動再取得）
+        <button onclick="APP._weatherRetryCount=0;loadSessionResults(APP.selectedVenue,APP.selectedRace)" style="font-size:.68rem;padding:2px 8px;background:var(--gold);color:#000;border:none;border-radius:3px;cursor:pointer;">今すぐ再取得</button>
        </div>` : '';
 
   document.getElementById('wxGrid').innerHTML=`

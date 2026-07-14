@@ -1635,6 +1635,10 @@ function calcPlaceProbs(entries, vc, wx, expand, etRankMap, withET, W){
   const sc=expand.sc;
 
   const prob={};
+  const in1e=entries.find(e=>e.no===1);
+  const in1etR=in1e?(etRankMap[in1e.no]||999):999;
+  const in1Bad=in1e&&(in1e.motorRate<38||(withET.length>0&&in1etR===withET.length));
+
   entries.forEach(e=>{
     const no=e.no;
     const etR=etRankMap[no]||0;
@@ -1679,23 +1683,56 @@ function calcPlaceProbs(entries, vc, wx, expand, etRankMap, withET, W){
       sessionFactor*W.sessionForm +
       effectiveRate*W.nationalRate;
 
-    // コース有利度（展開を反映）
-    const courseBase={1:1.0,2:0.65,3:0.50,4:0.40,5:0.30,6:0.22};
-    let courseAdv=courseBase[no]||0.22;
-    if(no===1&&(vc.in1||54)>=57) courseAdv*=1.25;
-    if(no===1&&(vc.in1||54)<50)  courseAdv*=0.70;
-    if(isHead&&spd>=5&&no===1)   courseAdv*=(1-0.20*Math.min(1,spd/8));
-    if(isHead&&spd>=5&&no>=4)    courseAdv*=(1+0.15*Math.min(1,spd/8));
-    if(isTail&&spd>=4&&no===1)   courseAdv*=1.12;
-    // 展開シナリオで補正
-    if(sc.maki>=0.25&&no>=4) courseAdv*=1.15;
-    if(sc.sashi>=0.25&&(no===2||no===3)) courseAdv*=1.12;
-    if(sc.nige>=0.50&&no===1) courseAdv*=1.10;
+    // ━━ コース有利度（全国実データ準拠）━━
+    // 1コース全国平均1着率: 54%
+    // プロは「コース×当日の機力×展開」で判断する
+    // courseBaseは純粋なコース有利度（全国平均）
+    const courseBase={1:0.54,2:0.12,3:0.10,4:0.10,5:0.08,6:0.06};
+    let courseAdv=courseBase[no]||0.06;
 
-    // 1着確率
-    const p1raw=courseAdv*0.45+abilityScore*0.55;
-    const p2raw=abilityScore*0.55+(1-courseAdv)*0.15+(p1raw*0.35);
-    const p3raw=abilityScore*0.45+(p2raw*0.40);
+    // イン強/弱コース補正
+    const inRate=vc.in1||54;
+    if(no===1){
+      courseAdv=inRate/100; // 当地1着率をそのまま使用
+      // 1号艇が好調なら追加ボーナス
+      if(!in1Bad) courseAdv*=1.05;
+    }
+
+    // 向かい風補正（プロ最重視）
+    if(isHead&&spd>=5){
+      if(no===1)      courseAdv*=(1-0.25*Math.min(1,spd/8));
+      else if(no===2) courseAdv*=1.05;
+      else if(no===3) courseAdv*=1.10;
+      else if(no>=4)  courseAdv*=(1+0.20*Math.min(1,spd/8));
+    }
+    if(isTail&&spd>=4){
+      if(no===1) courseAdv*=1.15;
+      else if(no>=4) courseAdv*=0.90;
+    }
+
+    // 展開シナリオで補正
+    if(sc.nige>=0.45&&no===1)  courseAdv*=1.15; // 逃げ展開なら1号艇さらに有利
+    if(sc.maki>=0.25&&no>=4)   courseAdv*=1.20; // まくり展開なら4〜6号艇有利
+    if(sc.sashi>=0.25&&no===2) courseAdv*=1.15; // 差し展開なら2号艇有利
+    if(sc.sashi>=0.25&&no===3) courseAdv*=1.10;
+    if(sc.makiSashi>=0.20&&no>=3&&no<=5) courseAdv*=1.15; // まくり差し
+
+    // 今節好調のアウト艇ボーナス（実績で裏付けられた穴候補）
+    if(no>=4&&e.sessionResults.length>=2){
+      const sessAvg=e.sessionResults.reduce((a,b)=>a+b,0)/e.sessionResults.length;
+      if(sessAvg<=2.0) courseAdv*=1.25; // 節内好調なら大幅ボーナス
+      else if(sessAvg<=3.0) courseAdv*=1.10;
+    }
+
+    // モーター好調のアウト艇ボーナス
+    if(no>=4&&e.motorRate>=54) courseAdv*=1.15;
+    if(no>=4&&e.motorRate>=48) courseAdv*=1.08;
+
+    // 1着確率（コース有利度と能力スコアのバランス）
+    // コース:能力 = 55:45（プロはコース×展開を重視）
+    const p1raw=courseAdv*0.55+abilityScore*0.45;
+    const p2raw=abilityScore*0.50+(1-courseAdv)*0.20+(p1raw*0.30);
+    const p3raw=abilityScore*0.45+(p2raw*0.35);
     prob[no]={p1:Math.max(0.005,p1raw), p2:Math.max(0.005,p2raw), p3:Math.max(0.005,p3raw)};
   });
 
@@ -1781,7 +1818,16 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   const makiCand = [...entries].filter(e=>e.no>=4)
     .sort((a,b)=>(placeP[b.no]?.p1||0)-(placeP[a.no]?.p1||0));
 
-  // ━━ プロSTEP2: 「軸」を1艇決める（最も確信度が高い1着候補）━━
+  // ━━ 穴候補：アウト艇で今節好調・モーター好調・展示上位の艇 ━━
+  const holeCandEntries=[...entries].filter(e=>{
+    if(e.no<3) return false;
+    const sessGood=e.sessionResults.length>=2&&
+      e.sessionResults.reduce((a,b)=>a+b,0)/e.sessionResults.length<=2.5;
+    const motorGood=e.motorRate>=50;
+    const etTop=etRankMap[e.no]&&etRankMap[e.no]<=3;
+    const stFast=e.exhibitST>0&&e.exhibitST<=0.15||e.avgST>0&&e.avgST<=0.16;
+    return sessGood||motorGood||etTop||stFast;
+  }).sort((a,b)=>(placeP[b.no]?.p1||0)-(placeP[a.no]?.p1||0));
   let axis, axisReason='';
 
   // イン強コースで1号艇が好調なら迷わずインを軸
@@ -1880,22 +1926,33 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
     }
   }
 
-  // ━━ 穴: 条件が揃った時だけ（まくり差し候補＋荒れ要因）━━
-  if(canHole && makiSashiCands.length>0){
-    const ms=makiSashiCands[0];
-    const ms2=makiSashiCands[1];
-    // 穴1: まくり差し候補が1着を奪う波乱
-    if(ms.no!==axis){
+  // ━━ 穴: まくり差し候補 or アウト好調艇（条件が揃った場合のみ）━━
+  if(canHole){
+    const holePool=[...makiSashiCands];
+    // アウト艇で今節好調・モーター好調も穴候補に追加
+    holeCandEntries.forEach(e=>{
+      if(!holePool.find(h=>h.no===e.no)) holePool.push(e);
+    });
+    const ms=holePool[0];
+    const ms2=holePool[1];
+    if(ms&&ms.no!==axis){
       addPick(ms.no, axis, sub1, '穴','hole',
-        `波乱：${ms.no}号艇がまくり差し決着（ST速く展示上位）`);
+        `波乱：${ms.no}号艇(M${ms.motorRate.toFixed(0)}%・今節好調)が台頭`);
+      addPick(axis, sub1, ms.no, '穴','hole',
+        `${axis}→${sub1}の本命筋に${ms.no}号艇が3着割込み`);
+    } else if(ms){
+      addPick(axis, sub1, ms.no, '穴','hole',
+        `本命軸で${ms.no}号艇が3着に入る展開`);
     }
-    // 穴2: 軸軸で穴候補が3着に入る
-    addPick(axis, sub1, ms.no, '穴','hole',
-      `${axis}→${sub1}の本命筋に${ms.no}号艇が割り込む穴`);
-    // 穴3: まくり差し2番手候補
-    if(ms2&&ms2.no!==axis&&ms2.no!==ms.no){
+    if(ms2&&ms2.no!==axis&&ms2.no!==ms?.no){
       addPick(ms2.no, axis, sub1, '穴','hole',
-        `波乱2：${ms2.no}号艇のまくり差しが決まった場合`);
+        `穴2：${ms2.no}号艇(M${ms2.motorRate.toFixed(0)}%)の台頭`);
+    }
+    // アウト艇が1着の大穴
+    const bigHole=holeCandEntries.find(e=>e.no>=4&&e.no!==ms?.no);
+    if(bigHole&&bigHole.no!==axis){
+      addPick(bigHole.no, sub1, axis, '穴','hole',
+        `大穴：${bigHole.no}号艇まくり1着・高配当狙い`);
     }
   }
 

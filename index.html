@@ -712,7 +712,7 @@ async function loadRacePanel(){
 function applyPreviewData(v, rno){
   const venueCode=parseInt(v.code);
   const key=`${venueCode}-${parseInt(rno)}`;
-  const prevRace=APP.previewsCache?.[key];
+  const p=APP.previewsCache?.[key];
 
   const WIND_DIR_MAP={
     1:'北',2:'北北東',3:'北東',4:'東北東',5:'東',6:'東南東',
@@ -721,58 +721,56 @@ function applyPreviewData(v, rno){
   };
   const WEATHER_MAP={1:'晴れ',2:'曇り',3:'雨',4:'小雨',5:'霧'};
 
-  if(!prevRace){
-    // キャッシュにない→取得待ち表示
-    APP.weather={
-      condition:'―',temp:'―',waterTemp:'―',
-      windSpeed:0,windDir:'―',wave:0,pending:true
-    };
+  if(!p){
+    APP.weather={condition:'―',temp:'―',waterTemp:'―',windSpeed:0,windDir:'―',wave:0,pending:true};
     renderWeather(APP.weather,v);
     return;
   }
 
-  const windDirNum=prevRace.wind_direction_number;
-  const windDir=windDirNum!=null?(WIND_DIR_MAP[windDirNum]||'不明'):null;
-  const weatherNum=prevRace.weather_number;
-  const weather=weatherNum!=null?(WEATHER_MAP[weatherNum]||'不明'):null;
-  const windSpeed=parseFloat(prevRace.wind_speed||0);
-  const wave=parseFloat(prevRace.wave_height||0);
-  const airTemp=prevRace.air_temperature||0;
-  const waterTemp=prevRace.water_temperature||0;
-  const hasData=windDir!=null||windSpeed>0||wave>0;
+  // previews/results両方のフィールド名に対応
+  const windSpeed  = parseFloat(p.wind_speed||0);
+  const windDirNum = p.wind_direction_number;
+  const waveHeight = parseFloat(p.wave_height||0);
+  const weatherNum = p.weather_number;
+  const airTemp    = parseFloat(p.air_temperature||0);
+  const waterTemp  = parseFloat(p.water_temperature||0);
+
+  const windDir  = windDirNum!=null ? (WIND_DIR_MAP[windDirNum]||'不明') : '―';
+  const weather  = weatherNum!=null ? (WEATHER_MAP[weatherNum]||'不明') : '―';
+  const hasData  = windSpeed>0 || waveHeight>0 || windDirNum!=null;
 
   APP.weather={
-    condition:  weather||'―',
-    temp:       airTemp>0?airTemp+'℃':'―',
-    waterTemp:  waterTemp>0?waterTemp+'℃':'―',
+    condition:  weather,
+    temp:       airTemp>0 ? airTemp+'℃' : '―',
+    waterTemp:  waterTemp>0 ? waterTemp+'℃' : '―',
     windSpeed:  windSpeed,
-    windDir:    windDir||'―',
-    wave:       wave,
+    windDir:    windDir,
+    wave:       waveHeight,
     pending:    !hasData,
   };
-  renderWeather(APP.weather,v);
+  renderWeather(APP.weather, v);
 
-  // 展示データを各艇に適用
-  const boatsObj=prevRace.boats||{};
-  Object.entries(boatsObj).forEach(([key,pb])=>{
-    const no=parseInt(pb.racer_boat_number||key);
+  // 展示データを適用（previewsのみ・resultsには展示タイムなし）
+  const boatsObj=p.boats||{};
+  const boatsArr=Array.isArray(boatsObj)?boatsObj:Object.values(boatsObj);
+  boatsArr.forEach(pb=>{
+    const no=parseInt(pb.racer_boat_number);
     const entry=APP.entries.find(e=>e.no===no);
     if(!entry) return;
     const et=parseFloat(pb.racer_exhibition_time||0);
     if(et>0) entry.exhibitTime=et;
     const st=pb.racer_start_timing;
-    if(st!=null) entry.exhibitST=parseFloat(st)||0;
+    if(st!=null&&st!==0) entry.exhibitST=parseFloat(st)||0;
     const course=pb.racer_course_number;
     if(course!=null) entry.approach=parseInt(course)||no;
     const tilt=pb.racer_tilt_adjustment;
     if(tilt!=null) entry.tilt=parseFloat(tilt)||0;
-    if((pb.racer_weight_adjustment||0)>0) entry.weightAdj=parseFloat(pb.racer_weight_adjustment);
   });
 
   const withETArr=APP.entries.filter(e=>e.exhibitTime>0).sort((a,b)=>b.exhibitTime-a.exhibitTime);
   withETArr.forEach((e,i)=>{ e.exhibitRank=i+1; });
   APP._exhibitLoaded=withETArr.length>0;
-  console.log(`[preview適用] ${v.name} ${rno}R 風:${APP.weather.windDir}${windSpeed}m 波:${wave}cm 展示:${withETArr.length}艇`);
+  console.log(`[preview適用] ${v.name} ${rno}R 風:${windDir}${windSpeed}m 波:${waveHeight}cm 展示:${withETArr.length}艇`);
 }
 
 // 今節成績・先週実績・展示情報をAPIから取得して entries に反映

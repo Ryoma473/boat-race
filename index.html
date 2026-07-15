@@ -169,6 +169,66 @@ label{font-size:.72rem;color:var(--text2);display:block;margin-bottom:3px;}
     <div class="tc active" id="tc-wx">
       <div class="wx-grid" id="wxGrid"></div>
       <div id="windAlert"></div>
+      <!-- 手動入力フォーム -->
+      <div class="card" style="background:var(--bg3);margin-top:.5rem;">
+        <div class="card-title">天候を手動入力（公式サイトで確認した値を入力）</div>
+        <div class="form-row">
+          <div>
+            <label>天候</label>
+            <select id="wxInputCondition">
+              <option value="">選択</option>
+              <option value="晴れ">☀️ 晴れ</option>
+              <option value="曇り">☁️ 曇り</option>
+              <option value="雨">🌧️ 雨</option>
+              <option value="小雨">🌦️ 小雨</option>
+            </select>
+          </div>
+          <div>
+            <label>風向</label>
+            <select id="wxInputDir">
+              <option value="">選択</option>
+              <option value="北">北</option>
+              <option value="北東">北東</option>
+              <option value="東">東</option>
+              <option value="南東">南東</option>
+              <option value="南">南</option>
+              <option value="南西">南西</option>
+              <option value="西">西</option>
+              <option value="北西">北西</option>
+              <option value="北北東">北北東</option>
+              <option value="東北東">東北東</option>
+              <option value="東南東">東南東</option>
+              <option value="南南東">南南東</option>
+              <option value="南南西">南南西</option>
+              <option value="西南西">西南西</option>
+              <option value="西北西">西北西</option>
+              <option value="北北西">北北西</option>
+              <option value="なし">なし</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div>
+            <label>風速（m）</label>
+            <input type="number" id="wxInputSpeed" placeholder="例: 5" min="0" max="30" step="1" style="width:100%;">
+          </div>
+          <div>
+            <label>波高（cm）</label>
+            <input type="number" id="wxInputWave" placeholder="例: 10" min="0" max="100" step="1" style="width:100%;">
+          </div>
+        </div>
+        <div class="form-row">
+          <div>
+            <label>気温（℃）</label>
+            <input type="number" id="wxInputTemp" placeholder="例: 28" min="-10" max="45" step="1" style="width:100%;">
+          </div>
+          <div style="display:flex;align-items:flex-end;gap:.5rem;">
+            <button class="btn btn-primary" onclick="applyManualWeather()" style="flex:1;padding:.5rem;">反映</button>
+            <button class="btn" onclick="clearManualWeather()" style="padding:.5rem;">クリア</button>
+          </div>
+        </div>
+        <div id="wxManualStatus" style="font-size:.72rem;color:var(--text3);margin-top:.3rem;"></div>
+      </div>
       <div class="card" style="background:var(--bg3);">
         <div class="card-title">コース特性</div>
         <div id="venueCharText" class="text-sm text-muted"></div>
@@ -655,7 +715,52 @@ async function loadRacePanel(){
   renderScoreGrid();
 }
 
-// ── キャッシュからpreviewデータを適用 ────────────────
+// ── 手動天候入力 ──────────────────────────────────
+function applyManualWeather(){
+  const condition = document.getElementById('wxInputCondition').value;
+  const dir       = document.getElementById('wxInputDir').value;
+  const speed     = parseFloat(document.getElementById('wxInputSpeed').value)||0;
+  const wave      = parseFloat(document.getElementById('wxInputWave').value)||0;
+  const temp      = document.getElementById('wxInputTemp').value;
+
+  if(!dir&&!speed&&!wave){
+    document.getElementById('wxManualStatus').textContent='風向・風速・波高を入力してください';
+    return;
+  }
+
+  // APP.weatherを上書き
+  APP.weather={
+    condition: condition||APP.weather?.condition||'―',
+    temp:      temp?temp+'℃':(APP.weather?.temp||'―'),
+    waterTemp: APP.weather?.waterTemp||'―',
+    windSpeed: speed,
+    windDir:   dir||APP.weather?.windDir||'―',
+    wave:      wave,
+    pending:   false,
+    manual:    true, // 手動入力フラグ
+  };
+
+  renderWeather(APP.weather, APP.selectedVenue);
+  // スコアを再計算
+  if(APP.entries.length) calcScores();
+
+  const statusEl=document.getElementById('wxManualStatus');
+  statusEl.textContent=`✅ 反映済み: 風向${dir} 風速${speed}m 波高${wave}cm`;
+  statusEl.style.color='var(--teal)';
+}
+
+function clearManualWeather(){
+  document.getElementById('wxInputCondition').value='';
+  document.getElementById('wxInputDir').value='';
+  document.getElementById('wxInputSpeed').value='';
+  document.getElementById('wxInputWave').value='';
+  document.getElementById('wxInputTemp').value='';
+  document.getElementById('wxManualStatus').textContent='クリアしました';
+  // 自動取得データに戻す
+  if(APP.selectedVenue&&APP.selectedRace){
+    applyPreviewData(APP.selectedVenue, APP.selectedRace);
+  }
+}
 function applyPreviewData(v, rno){
   const venueCode=parseInt(v.code);
   const raceNo=parseInt(rno);

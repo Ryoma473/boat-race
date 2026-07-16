@@ -1933,46 +1933,37 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
     const stFast=e.exhibitST>0&&e.exhibitST<=0.15||e.avgST>0&&e.avgST<=0.16;
     return sessGood||motorGood||etTop||stFast;
   }).sort((a,b)=>(placeP[b.no]?.p1||0)-(placeP[a.no]?.p1||0));
-  let axis, axisReason='';
+  let axis=sorted[0]?.no, axisReason='';
 
-  // イン強コースで1号艇が好調なら迷わずインを軸
+  // イン強コースで1号艇好調なら1号艇軸
   if(nigeStrong && sc.nige>=0.38 && (vc.in1||54)>=55){
-    axis = 1;
-    axisReason = `インが強いコース(${vc.in1}%)・1号艇展示${in1etR}位・逃げ率${Math.round(sc.nige*100)}%`;
-  }
-  // 向かい風強くてインが崩れる→差し・まくり有利な艇を軸
-  else if(isHead && spd>=5 && sorted[0].no!==1){
-    axis = sorted[0].no;
-    axisReason = `向かい風${spd}m→イン不利・${axis}号艇が展開上有利`;
-  }
-  // 1号艇の展示が最下位→アウトから攻める
-  else if(in1etR>=4 && (vc.in1||54)<56){
-    axis = sorted[0].no;
-    axisReason = `1号艇展示${in1etR}位で機力不安・${axis}号艇が台頭`;
-  }
-  // その他はplaceP最上位
-  else {
-    axis = sorted[0].no;
-    axisReason = `総合評価(展示・機力・今節)で${axis}号艇が最上位`;
+    axis=1;
+    axisReason=`インが強いコース(${vc.in1}%)・1号艇展示${in1etR}位・逃げ率${Math.round(sc.nige*100)}%`;
+  } else if(isHead&&spd>=5&&sorted[0].no!==1){
+    axis=sorted[0].no;
+    axisReason=`向かい風${spd}m→イン不利・${axis}号艇が展開上有利`;
+  } else if(in1etR>=4&&(vc.in1||54)<56){
+    axis=sorted[0].no;
+    axisReason=`1号艇展示${in1etR}位で機力不安・${axis}号艇が台頭`;
+  } else {
+    axis=sorted[0].no;
+    axisReason=`総合評価(展示・機力・今節)で${axis}号艇が最上位`;
   }
 
-  // ━━ プロSTEP3: 「2着・3着の流れ」を展開から読む ━━
-  // プロは「1マーク後の隊形」をイメージして2・3着を決める
+  const axis2=sorted[1]?.no; // 第2軸
 
-  // 2着候補: p2上位かつ「1着艇の後ろに続ける艇」
-  const p2sorted=[...entries].filter(e=>e.no!==axis)
+  // ━━ プロSTEP3: 2着・3着を「広く」持つ ━━
+  // 2着候補: axis以外でp2上位4艇
+  const p2list=[...entries].filter(e=>e.no!==axis)
     .sort((a,b)=>(placeP[b.no]?.p2||0)-(placeP[a.no]?.p2||0));
-  // 3着候補: p3上位
-  const p3sorted=[...entries].filter(e=>e.no!==axis)
+  // 3着候補: axis以外でp3上位4艇
+  const p3list=[...entries].filter(e=>e.no!==axis)
     .sort((a,b)=>(placeP[b.no]?.p3||0)-(placeP[a.no]?.p3||0));
 
-  const sub1 = p2sorted[0]?.no;
-  const sub2 = p2sorted[1]?.no;
-  const sub3 = p2sorted[2]?.no||p2sorted[1]?.no;
-  const p3_1 = p3sorted[0]?.no;
-  const p3_2 = p3sorted[1]?.no;
+  const b1=p2list[0]?.no, b2=p2list[1]?.no, b3=p2list[2]?.no, b4=p2list[3]?.no;
+  const c1=p3list[0]?.no, c2=p3list[1]?.no, c3=p3list[2]?.no;
 
-  // ━━ プロSTEP4: 展開ストーリー別に買い目を構築 ━━
+  // ━━ 買い目生成 ━━
   const seen=new Set();
   const result=[];
 
@@ -1986,78 +1977,38 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
     return true;
   }
 
-  // ━━ 本線: 最も成立しやすい「軸からの展開」━━
-  // ストーリー1: 軸が逃げ（または捲り）→後続が差して2・3着
-  addPick(axis, sub1, p3_1, '本線','main',
-    `${axis}号艇が先手→${sub1}号艇が差して2着・${p3_1}号艇が残る`);
+  // ━━ 本線: 軸1着・2着候補上位から広く ━━
+  addPick(axis, b1, c1, '本線','main', `${axis}軸・${b1}→${c1}本命展開`);
+  addPick(axis, b1, c2, '本線','main', `${axis}軸・${b1}→${c2}展開`);
+  addPick(axis, b2, c1, '本線','main', `${axis}軸・${b2}→${c1}展開`);
+  addPick(axis, b2, b1, '本線','main', `${axis}軸・${b2}→${b1}入替`);
+  addPick(axis, b3, c1, '本線','main', `${axis}軸・${b3}が2着浮上`);
 
-  // ストーリー2: 2・3着の入れ替わり
-  addPick(axis, p3_1, sub1, '本線','main',
-    `${axis}号艇先行→2・3着入替。${p3_1}号艇が内から差す`);
+  // ━━ 対抗: 第2軸が1着 or 3着を広げる ━━
+  addPick(axis2, axis, c1, '対抗','anti', `${axis2}→${axis}逆転展開`);
+  addPick(axis2, b1,   c1, '対抗','anti', `${axis2}が1着・${b1}→${c1}`);
+  addPick(axis,  b1,   c3, '対抗','anti', `${axis}軸・3着に${c3}が入る`);
 
-  // ストーリー3: 展開有利艇が2着に突っ込む
-  addPick(axis, sub2, p3_1, '本線','main',
-    `${axis}号艇軸・${sub2}号艇が展開を突いて2着浮上`);
-
-  // ストーリー4: 軸以外の有力艇が1着逆転（展開次第）
-  if(sub1!==1||(isHead&&spd>=5)){
-    addPick(sub1, axis, p3_1, '本線','main',
-      `${sub1}号艇が${axis}号艇をかわして1着・差し決着`);
-  } else {
-    addPick(axis, sub1, sub3, '本線','main',
-      `${axis}号艇軸・3着に${sub3}号艇が展開次第で入る`);
-  }
-
-  // ━━ 対抗: 成立する可能性がある「別展開」━━
-  // 対抗1: 2着候補の3番手が浮上
-  addPick(axis, sub2, sub1, '対抗','anti',
-    `${axis}号艇軸・${sub2}号艇が先に2着確保`);
-
-  // 対抗2: 差し展開で2着が差し替わる
-  if(sashiCand.length>=1){
-    const sc1=sashiCand[0].no;
-    if(sc1!==axis){
-      addPick(axis, sc1, p3_1, '対抗','anti',
-        `差し展開：${sc1}号艇（2〜3コース）が差して2着`);
-    }
-  }
-
-  // 対抗3: まくり展開で内が乱れる
-  if(makiCand.length>=1&&(sc.maki+sc.makiSashi)>=0.25){
-    const mk1=makiCand[0].no;
-    if(mk1!==axis){
-      addPick(axis, mk1, sub1, '対抗','anti',
-        `まくり展開：${mk1}号艇が外から攻めて2着に入る`);
-    }
-  }
-
-  // ━━ 穴: まくり差し候補 or アウト好調艇（条件が揃った場合のみ）━━
+  // ━━ 穴: アウト好調艇が絡む ━━
   if(canHole){
     const holePool=[...makiSashiCands];
-    // アウト艇で今節好調・モーター好調も穴候補に追加
     holeCandEntries.forEach(e=>{
       if(!holePool.find(h=>h.no===e.no)) holePool.push(e);
     });
     const ms=holePool[0];
     const ms2=holePool[1];
-    if(ms&&ms.no!==axis){
-      addPick(ms.no, axis, sub1, '穴','hole',
-        `波乱：${ms.no}号艇(M${ms.motorRate.toFixed(0)}%・今節好調)が台頭`);
-      addPick(axis, sub1, ms.no, '穴','hole',
-        `${axis}→${sub1}の本命筋に${ms.no}号艇が3着割込み`);
+    if(ms&&ms.no!==axis&&ms.no!==axis2){
+      addPick(ms.no, axis, b1, '穴','hole', `波乱：${ms.no}号艇が1着・高配当狙い`);
+      addPick(axis,  ms.no, b1, '穴','hole', `${axis}軸・${ms.no}号艇が2着割込み`);
     } else if(ms){
-      addPick(axis, sub1, ms.no, '穴','hole',
-        `本命軸で${ms.no}号艇が3着に入る展開`);
+      addPick(axis, ms.no, b1, '穴','hole', `本命軸で${ms.no}号艇が2着`);
     }
     if(ms2&&ms2.no!==axis&&ms2.no!==ms?.no){
-      addPick(ms2.no, axis, sub1, '穴','hole',
-        `穴2：${ms2.no}号艇(M${ms2.motorRate.toFixed(0)}%)の台頭`);
+      addPick(ms2.no, axis, b1, '穴','hole', `穴2：${ms2.no}号艇台頭`);
     }
-    // アウト艇が1着の大穴
     const bigHole=holeCandEntries.find(e=>e.no>=4&&e.no!==ms?.no);
     if(bigHole&&bigHole.no!==axis){
-      addPick(bigHole.no, sub1, axis, '穴','hole',
-        `大穴：${bigHole.no}号艇まくり1着・高配当狙い`);
+      addPick(bigHole.no, b1, axis, '穴','hole', `大穴：${bigHole.no}号艇まくり`);
     }
   }
 

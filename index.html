@@ -1893,21 +1893,6 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   // 1着確率でソート（placeP使用）
   const sorted=[...entries].sort((a,b)=>(placeP[b.no]?.p1||0)-(placeP[a.no]?.p1||0));
 
-  // コース別の「決まり手候補」を展開から算出
-  const in1e  = entries.find(e=>e.no===1);
-  const in1Str= placeP[1]?.p1||0;
-  const in1etR= etRankMap[1]||999;
-  const in1ET = entries.find(e=>e.no===1);
-
-  // 逃げ候補: インコース。展示・モーター・STが揃っていれば信頼度UP
-  const nigeStrong = in1Str>=0.35 && (in1ET?.motorRate||0)>=45 && in1etR<=3;
-  // 差し候補: 2・3コースで展示上位
-  const sashiCand = [...entries].filter(e=>e.no===2||e.no===3)
-    .sort((a,b)=>(placeP[b.no]?.p1||0)-(placeP[a.no]?.p1||0));
-  // まくり候補: 4〜6コースで展示上位かつSTが早い
-  const makiCand = [...entries].filter(e=>e.no>=4)
-    .sort((a,b)=>(placeP[b.no]?.p1||0)-(placeP[a.no]?.p1||0));
-
   // ━━ 穴候補：アウト艇で今節好調・モーター好調・展示上位の艇 ━━
   const holeCandEntries=[...entries].filter(e=>{
     if(e.no<3) return false;
@@ -1918,12 +1903,17 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
     const stFast=e.exhibitST>0&&e.exhibitST<=0.15||e.avgST>0&&e.avgST<=0.16;
     return sessGood||motorGood||etTop||stFast;
   }).sort((a,b)=>(placeP[b.no]?.p1||0)-(placeP[a.no]?.p1||0));
-  // ━━ プロの思考で軸を決める ━━
+
+  // ━━ プロの思考①〜⑤で軸を決める ━━
+  const in1e=entries.find(e=>e.no===1);
+  const in1etR=in1e?(etRankMap[in1e.no]||999):999;
+  const in1Bad=in1e&&(in1e.motorRate<38||(withET.length>0&&in1etR===withET.length));
+  const in1Str=placeP[1]?.p1||0;
+  const nigeStrong=in1Str>=0.30&&(in1e?.motorRate||0)>=45&&in1etR<=3;
 
   // ① 1号艇のモーターと今節成績を最初に確認
-  const in1e2=entries.find(e=>e.no===1);
-  const in1Motor=in1e2?.motorRate||0;
-  const in1Session=in1e2?.sessionResults||[];
+  const in1Motor=in1e?.motorRate||0;
+  const in1Session=in1e?.sessionResults||[];
   const in1SessionAvg=in1Session.length?in1Session.reduce((a,b)=>a+b,0)/in1Session.length:3;
   const in1Strong= in1Motor>=48 && in1SessionAvg<=3.0 && !in1Bad;
   const in1Weak  = in1Motor<38 || in1SessionAvg>=4.5 || in1Bad;

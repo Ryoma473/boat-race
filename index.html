@@ -1788,56 +1788,71 @@ function calcPlaceProbs(entries, vc, wx, expand, etRankMap, withET, W){
       sessionFactor*W.sessionForm +
       effectiveRate*W.nationalRate;
 
-    // ━━ コース有利度（全国実データ準拠）━━
-    // 1コース全国平均1着率: 54%
-    // プロは「コース×当日の機力×展開」で判断する
-    // courseBaseは純粋なコース有利度（全国平均）
-    const courseBase={1:0.54,2:0.12,3:0.10,4:0.10,5:0.08,6:0.06};
-    let courseAdv=courseBase[no]||0.06;
+    // ━━ コース有利度（実データ準拠・プロ重視）━━
+    // 全国平均1着率: 1コース54%・2コース13%・3コース11%・4コース11%・5コース7%・6コース4%
+    // ただし「能力がある艇」はコースを超えて来る
+    const courseBase={1:0.54,2:0.13,3:0.11,4:0.11,5:0.07,6:0.04};
+    let courseAdv=courseBase[no]||0.04;
+
+    // 能力補正（強い選手はコース不利を覆す）
+    const abilityBoost=Math.max(0, abilityScore-0.3)*0.5;
+    courseAdv+=abilityBoost*(no>=3?1.5:0.5); // アウト艇ほど能力補正を強く
 
     // イン強/弱コース補正
     const inRate=vc.in1||54;
     if(no===1){
-      courseAdv=inRate/100; // 当地1着率をそのまま使用
-      // 1号艇が好調なら追加ボーナス
-      if(!in1Bad) courseAdv*=1.05;
+      courseAdv=inRate/100*(in1Bad?0.75:1.0);
     }
 
-    // 向かい風補正（プロ最重視）
+    // 向かい風補正
     if(isHead&&spd>=5){
-      if(no===1)      courseAdv*=(1-0.25*Math.min(1,spd/8));
-      else if(no===2) courseAdv*=1.05;
-      else if(no===3) courseAdv*=1.10;
-      else if(no>=4)  courseAdv*=(1+0.20*Math.min(1,spd/8));
+      if(no===1)      courseAdv*=(1-0.30*Math.min(1,spd/8));
+      else if(no===2) courseAdv*=1.10;
+      else if(no===3) courseAdv*=1.15;
+      else if(no>=4)  courseAdv*=(1+0.25*Math.min(1,spd/8));
     }
     if(isTail&&spd>=4){
       if(no===1) courseAdv*=1.15;
-      else if(no>=4) courseAdv*=0.90;
+      else if(no>=4) courseAdv*=0.88;
     }
 
-    // 展開シナリオで補正
-    if(sc.nige>=0.45&&no===1)  courseAdv*=1.15; // 逃げ展開なら1号艇さらに有利
-    if(sc.maki>=0.25&&no>=4)   courseAdv*=1.20; // まくり展開なら4〜6号艇有利
-    if(sc.sashi>=0.25&&no===2) courseAdv*=1.15; // 差し展開なら2号艇有利
-    if(sc.sashi>=0.25&&no===3) courseAdv*=1.10;
-    if(sc.makiSashi>=0.20&&no>=3&&no<=5) courseAdv*=1.15; // まくり差し
+    // 展開シナリオ補正
+    if(sc.nige>=0.45&&no===1)           courseAdv*=1.15;
+    if(sc.maki>=0.25&&no>=4)            courseAdv*=1.25;
+    if(sc.sashi>=0.25&&(no===2||no===3)) courseAdv*=1.15;
+    if(sc.makiSashi>=0.20&&no>=3&&no<=5) courseAdv*=1.20;
 
-    // 今節好調のアウト艇ボーナス（実績で裏付けられた穴候補）
-    if(no>=4&&e.sessionResults.length>=2){
+    // アウト艇の今節成績ボーナス（最重要）
+    if(no>=3&&e.sessionResults.length>=2){
       const sessAvg=e.sessionResults.reduce((a,b)=>a+b,0)/e.sessionResults.length;
-      if(sessAvg<=2.0) courseAdv*=1.25; // 節内好調なら大幅ボーナス
-      else if(sessAvg<=3.0) courseAdv*=1.10;
+      const recentBest=Math.min(...e.sessionResults.slice(-2));
+      if(sessAvg<=1.5)       courseAdv*=1.40; // 今節絶好調
+      else if(sessAvg<=2.0)  courseAdv*=1.30;
+      else if(sessAvg<=2.5)  courseAdv*=1.15;
+      else if(sessAvg<=3.0)  courseAdv*=1.05;
+      if(recentBest===1)     courseAdv*=1.10; // 直近2走で1着あり
     }
 
-    // モーター好調のアウト艇ボーナス
-    if(no>=4&&e.motorRate>=54) courseAdv*=1.15;
-    if(no>=4&&e.motorRate>=48) courseAdv*=1.08;
+    // モーター好調ボーナス
+    if(no>=3&&e.motorRate>=56) courseAdv*=1.20;
+    else if(no>=3&&e.motorRate>=50) courseAdv*=1.10;
 
-    // 1着確率（コース有利度と能力スコアのバランス）
-    // コース:能力 = 55:45（プロはコース×展開を重視）
-    const p1raw=courseAdv*0.55+abilityScore*0.45;
-    const p2raw=abilityScore*0.50+(1-courseAdv)*0.20+(p1raw*0.30);
-    const p3raw=abilityScore*0.45+(p2raw*0.35);
+    // STが早いアウト艇ボーナス（まくりに来る）
+    const stVal=e.exhibitST>0?e.exhibitST:e.avgST;
+    if(no>=3&&stVal>0&&stVal<=0.13) courseAdv*=1.20;
+    else if(no>=3&&stVal>0&&stVal<=0.16) courseAdv*=1.10;
+
+    // 級別ボーナス（プロが重視）
+    // A1がアウトにいる時は特に警戒
+    const gradeBonus={
+      'A1': no>=4 ? 1.35 : no>=2 ? 1.15 : 1.10, // A1はどこからでも来る
+      'A2': no>=4 ? 1.20 : no>=2 ? 1.08 : 1.05,
+      'B1': 1.00, // 基準
+      'B2': no>=4 ? 0.75 : 0.85, // B2のアウトは厳しい
+    }[e.grade]||1.00;
+    courseAdv*=gradeBonus;
+    const p2raw=abilityScore*0.55+(1-courseAdv)*0.18+(p1raw*0.27);
+    const p3raw=abilityScore*0.50+(p2raw*0.33);
     prob[no]={p1:Math.max(0.005,p1raw), p2:Math.max(0.005,p2raw), p3:Math.max(0.005,p3raw)};
   });
 
@@ -1977,19 +1992,20 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
     return true;
   }
 
-  // ━━ 本線: 軸1着・2着候補上位から広く ━━
-  addPick(axis, b1, c1, '本線','main', `${axis}軸・${b1}→${c1}本命展開`);
-  addPick(axis, b1, c2, '本線','main', `${axis}軸・${b1}→${c2}展開`);
-  addPick(axis, b2, c1, '本線','main', `${axis}軸・${b2}→${c1}展開`);
-  addPick(axis, b2, b1, '本線','main', `${axis}軸・${b2}→${b1}入替`);
-  addPick(axis, b3, c1, '本線','main', `${axis}軸・${b3}が2着浮上`);
+  // ━━ 本線: 第1軸・第2軸から2着3着を広く ━━
+  addPick(axis,  b1, c1, '本線','main', `${axis}軸・${b1}→${c1}本命`);
+  addPick(axis,  b1, c2, '本線','main', `${axis}軸・${b1}→${c2}`);
+  addPick(axis,  b2, c1, '本線','main', `${axis}軸・${b2}→${c1}`);
+  addPick(axis,  b2, b1, '本線','main', `${axis}軸・2着入替`);
+  // 第2軸が1着（プロは対抗軸を必ず本線に1点入れる）
+  addPick(axis2, b1, c1, '本線','main', `${axis2}→${b1}→${c1}対抗軸`);
 
-  // ━━ 対抗: 第2軸が1着 or 3着を広げる ━━
-  addPick(axis2, axis, c1, '対抗','anti', `${axis2}→${axis}逆転展開`);
-  addPick(axis2, b1,   c1, '対抗','anti', `${axis2}が1着・${b1}→${c1}`);
-  addPick(axis,  b1,   c3, '対抗','anti', `${axis}軸・3着に${c3}が入る`);
+  // ━━ 対抗: 3着を広げる・別展開 ━━
+  addPick(axis,  b3, c1, '対抗','anti', `${axis}軸・${b3}が2着浮上`);
+  addPick(axis2, axis, c1, '対抗','anti', `${axis2}→${axis}逆転`);
+  addPick(axis,  b1,  c3, '対抗','anti', `${axis}軸・3着に${c3}`);
 
-  // ━━ 穴: アウト好調艇が絡む ━━
+  // ━━ 穴: アウト好調艇が1着 ━━
   if(canHole){
     const holePool=[...makiSashiCands];
     holeCandEntries.forEach(e=>{
@@ -1998,16 +2014,16 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
     const ms=holePool[0];
     const ms2=holePool[1];
     if(ms&&ms.no!==axis&&ms.no!==axis2){
-      addPick(ms.no, axis, b1, '穴','hole', `波乱：${ms.no}号艇が1着・高配当狙い`);
-      addPick(axis,  ms.no, b1, '穴','hole', `${axis}軸・${ms.no}号艇が2着割込み`);
+      addPick(ms.no, axis, b1, '穴','hole', `波乱：${ms.no}号艇が1着`);
+      addPick(axis,  ms.no, b1, '穴','hole', `${axis}軸・${ms.no}号艇2着`);
     } else if(ms){
-      addPick(axis, ms.no, b1, '穴','hole', `本命軸で${ms.no}号艇が2着`);
+      addPick(axis, ms.no, b1, '穴','hole', `本命軸で${ms.no}号艇2着`);
     }
     if(ms2&&ms2.no!==axis&&ms2.no!==ms?.no){
       addPick(ms2.no, axis, b1, '穴','hole', `穴2：${ms2.no}号艇台頭`);
     }
-    const bigHole=holeCandEntries.find(e=>e.no>=4&&e.no!==ms?.no);
-    if(bigHole&&bigHole.no!==axis){
+    const bigHole=holeCandEntries.find(e=>e.no>=4&&e.no!==ms?.no&&e.no!==axis);
+    if(bigHole){
       addPick(bigHole.no, b1, axis, '穴','hole', `大穴：${bigHole.no}号艇まくり`);
     }
   }

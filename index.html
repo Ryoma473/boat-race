@@ -1877,6 +1877,7 @@ function findMakiSashiCandidates(entries, etRankMap, withET){
 // ── STEP7: プロの思考で買い目を生成 ─────────────────
 // プロは「展開ストーリー」から逆算して買い目を作る
 function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, canHole, etRankMap){
+  const withET=entries.filter(e=>e.exhibitTime>0).sort((a,b)=>b.exhibitTime-a.exhibitTime);
   const {main:mainCnt, anti:antiCnt, hole:holeCnt}=race;
   const sc=expand.sc;
   const wx=APP.weather;

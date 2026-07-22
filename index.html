@@ -1930,7 +1930,7 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   const outFavorable = (isHead&&spd>=5)||wave>=15; // アウト有利条件
 
   // ④ 展示タイムで当日の機力を最終確認
-  const in1etRankFinal=in1e2?(etRankMap[in1e2.no]||999):999;
+  const in1etRankFinal=in1e?(etRankMap[in1e.no]||999):999;
   const in1ExhibitGood=withET.length>0&&in1etRankFinal<=2;
   const in1ExhibitBad =withET.length>0&&in1etRankFinal>=withET.length-1;
 

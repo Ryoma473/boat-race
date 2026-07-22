@@ -1746,116 +1746,84 @@ function calcPlaceProbs(entries, vc, wx, expand, etRankMap, withET, W){
 
   entries.forEach(e=>{
     const no=e.no;
-    const etR=etRankMap[no]||0;
-    const etGood=withET.length>0&&etR<=Math.ceil(withET.length/3);
-    const etBad =withET.length>0&&etR===withET.length;
-    const motorGood=e.motorRate>=50;
 
-    // ① 展示タイム（最優先）
-    let etFactor=0.5;
-    if(withET.length>=2){
-      etFactor=(withET.length-etR)/(withET.length-1)||0;
-    }
-
-    // ② 展示ST
-    const st=e.exhibitST>0?e.exhibitST:(e.avgST>0?e.avgST:0.185);
-    const stFactor=Math.max(0, (0.22-st)/0.10);
-
-    // ③ モーター
-    const mFactor=Math.max(0,(e.motorRate-30)/40);
-    // ④ ボート
-    const bFactor=Math.max(0,(e.boatRate-30)/40);
-
-    // ⑤ 今節成績
-    let sessionFactor=0.4;
+    // ━━ 選手能力スコア（0〜100点） ━━
+    // モーター（最重要：当日の機力）
+    const motorS = Math.max(0, Math.min(30, (e.motorRate-30)/40*30));
+    // 今節成績
+    let sessionS = 15; // デフォルト中間
     if(e.sessionResults.length>=2){
       const avg=e.sessionResults.reduce((a,b)=>a+b,0)/e.sessionResults.length;
-      sessionFactor=Math.max(0,(6-avg)/5);
+      sessionS = avg<=1.5?30: avg<=2.0?25: avg<=2.5?20: avg<=3.0?15: avg<=4.0?8:3;
     }
+    // 勝率（実力）
+    const rateS = Math.max(0, Math.min(20, e.winRate/8.0*20));
+    // 当地勝率
+    const localS = e.localWinRate>0 ? Math.max(0,Math.min(10,e.localWinRate/8.0*10)) : rateS*0.5;
+    // ST（スタート力）
+    const st=e.exhibitST>0?e.exhibitST:(e.avgST>0?e.avgST:0.185);
+    const stS = st<=0.13?10: st<=0.15?8: st<=0.17?6: st<=0.20?4:2;
+    // ボート
+    const boatS = Math.max(0,Math.min(5,(e.boatRate-30)/40*5));
 
-    // ⑥ 実力（勝率ベース）
-    const rateFactor=Math.min(1, e.winRate/8.0);
-    const localFactor=e.localWinRate>0?Math.min(1,e.localWinRate/8.0):rateFactor;
-    const effectiveRate=localFactor*0.55+rateFactor*0.45;
+    // 選手能力合計（0〜100）
+    const ability = motorS + sessionS + rateS + localS + stS + boatS;
 
-    // STEP4優先順位の重み付け合算
-    const abilityScore=
-      etFactor*W.exhibitTime +
-      stFactor*W.exhibitST +
-      mFactor*W.motor +
-      bFactor*W.boat +
-      stFactor*W.startAbility +
-      sessionFactor*W.sessionForm +
-      effectiveRate*W.nationalRate;
+    // 級別係数
+    const gradeK={'A1':1.20,'A2':1.08,'B1':1.00,'B2':0.85}[e.grade]||1.00;
 
-    // ━━ コース有利度（実データ準拠・プロ重視）━━
-    // 全国平均1着率: 1コース54%・2コース13%・3コース11%・4コース11%・5コース7%・6コース4%
-    // ただし「能力がある艇」はコースを超えて来る
-    const courseBase={1:0.54,2:0.13,3:0.11,4:0.11,5:0.07,6:0.04};
-    let courseAdv=courseBase[no]||0.04;
+    // ━━ コース有利度（全国実データ準拠） ━━
+    // 全国平均1着率: 1→54% 2→13% 3→11% 4→11% 5→7% 6→4%
+    const courseBase={1:54,2:13,3:11,4:11,5:7,6:4};
+    let courseScore = courseBase[no]||4;
 
-    // 能力補正（強い選手はコース不利を覆す）
-    const abilityBoost=Math.max(0, abilityScore-0.3)*0.5;
-    courseAdv+=abilityBoost*(no>=3?1.5:0.5); // アウト艇ほど能力補正を強く
+    // 当地コース補正
+    if(no===1) courseScore = vc.in1||54;
 
-    // イン強/弱コース補正
-    const inRate=vc.in1||54;
-    if(no===1){
-      courseAdv=inRate/100*(in1Bad?0.75:1.0);
-    }
-
-    // 向かい風補正
+    // 向かい風補正（プロ最重視）
     if(isHead&&spd>=5){
-      if(no===1)      courseAdv*=(1-0.30*Math.min(1,spd/8));
-      else if(no===2) courseAdv*=1.10;
-      else if(no===3) courseAdv*=1.15;
-      else if(no>=4)  courseAdv*=(1+0.25*Math.min(1,spd/8));
-    }
-    if(isTail&&spd>=4){
-      if(no===1) courseAdv*=1.15;
-      else if(no>=4) courseAdv*=0.88;
+      if(no===1) courseScore*=(1-0.25*Math.min(1,spd/8));
+      else if(no>=4) courseScore*=(1+0.20*Math.min(1,spd/8));
+    } else if(isTail&&spd>=4){
+      if(no===1) courseScore*=1.12;
     }
 
-    // 展開シナリオ補正
-    if(sc.nige>=0.45&&no===1)           courseAdv*=1.15;
-    if(sc.maki>=0.25&&no>=4)            courseAdv*=1.25;
-    if(sc.sashi>=0.25&&(no===2||no===3)) courseAdv*=1.15;
-    if(sc.makiSashi>=0.20&&no>=3&&no<=5) courseAdv*=1.20;
+    // 1号艇不調補正
+    if(no===1&&in1Bad) courseScore*=0.75;
 
-    // アウト艇の今節成績ボーナス（最重要）
+    // ━━ 1着スコア（コース×能力×級別） ━━
+    // プロの思考: コース有利度 × 選手能力 × 級別
+    // アウト艇は能力・級別が高い場合のみ来る
+    let p1score;
+    if(no===1){
+      // インは「コース有利度」を強く反映
+      p1score = courseScore * 0.65 + ability * 0.35 * gradeK;
+    } else if(no<=3){
+      // 2・3コースは能力とコースのバランス
+      p1score = courseScore * 0.45 + ability * 0.55 * gradeK;
+    } else {
+      // アウト（4〜6）は能力・級別が支配的
+      // ただしコース不利を能力で覆すのは容易ではない
+      p1score = courseScore * 0.30 + ability * 0.70 * gradeK;
+    }
+
+    // 今節好調アウト艇ボーナス（これが来た時は必ず実績がある）
     if(no>=3&&e.sessionResults.length>=2){
-      const sessAvg=e.sessionResults.reduce((a,b)=>a+b,0)/e.sessionResults.length;
-      const recentBest=Math.min(...e.sessionResults.slice(-2));
-      if(sessAvg<=1.5)       courseAdv*=1.40; // 今節絶好調
-      else if(sessAvg<=2.0)  courseAdv*=1.30;
-      else if(sessAvg<=2.5)  courseAdv*=1.15;
-      else if(sessAvg<=3.0)  courseAdv*=1.05;
-      if(recentBest===1)     courseAdv*=1.10; // 直近2走で1着あり
+      const avg=e.sessionResults.reduce((a,b)=>a+b,0)/e.sessionResults.length;
+      if(avg<=2.0) p1score*=1.30;
+      else if(avg<=2.5) p1score*=1.15;
     }
 
-    // モーター好調ボーナス
-    if(no>=3&&e.motorRate>=56) courseAdv*=1.20;
-    else if(no>=3&&e.motorRate>=50) courseAdv*=1.10;
+    // ST早いアウト艇ボーナス
+    if(no>=3&&st<=0.15) p1score*=1.15;
+    // モーター好調アウト艇ボーナス
+    if(no>=3&&e.motorRate>=55) p1score*=1.15;
+    else if(no>=3&&e.motorRate>=50) p1score*=1.08;
 
-    // STが早いアウト艇ボーナス（まくりに来る）
-    const stVal=e.exhibitST>0?e.exhibitST:e.avgST;
-    if(no>=3&&stVal>0&&stVal<=0.13) courseAdv*=1.20;
-    else if(no>=3&&stVal>0&&stVal<=0.16) courseAdv*=1.10;
+    const p2score = ability * 0.60 * gradeK + courseScore * 0.40;
+    const p3score = ability * 0.55 * gradeK + courseScore * 0.45;
 
-    // 級別ボーナス（プロが重視）
-    const gradeBonus={
-      'A1': no>=4 ? 1.35 : no>=2 ? 1.15 : 1.10,
-      'A2': no>=4 ? 1.20 : no>=2 ? 1.08 : 1.05,
-      'B1': 1.00,
-      'B2': no>=4 ? 0.75 : 0.85,
-    }[e.grade]||1.00;
-    courseAdv*=gradeBonus;
-
-    // 1着・2着・3着確率
-    const p1raw=courseAdv*0.60+abilityScore*0.40;
-    const p2raw=abilityScore*0.55+(1-courseAdv)*0.18+(p1raw*0.27);
-    const p3raw=abilityScore*0.50+(p2raw*0.33);
-    prob[no]={p1:Math.max(0.005,p1raw), p2:Math.max(0.005,p2raw), p3:Math.max(0.005,p3raw)};
+    prob[no]={p1:Math.max(0.1,p1score), p2:Math.max(0.1,p2score), p3:Math.max(0.1,p3score)};
   });
 
   // 1着確率を正規化（合計100%）
@@ -1950,24 +1918,60 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
     const stFast=e.exhibitST>0&&e.exhibitST<=0.15||e.avgST>0&&e.avgST<=0.16;
     return sessGood||motorGood||etTop||stFast;
   }).sort((a,b)=>(placeP[b.no]?.p1||0)-(placeP[a.no]?.p1||0));
+  // ━━ プロの思考で軸を決める ━━
+
+  // ① 1号艇のモーターと今節成績を最初に確認
+  const in1e2=entries.find(e=>e.no===1);
+  const in1Motor=in1e2?.motorRate||0;
+  const in1Session=in1e2?.sessionResults||[];
+  const in1SessionAvg=in1Session.length?in1Session.reduce((a,b)=>a+b,0)/in1Session.length:3;
+  const in1Strong= in1Motor>=48 && in1SessionAvg<=3.0 && !in1Bad;
+  const in1Weak  = in1Motor<38 || in1SessionAvg>=4.5 || in1Bad;
+
+  // ② アウトにA1・A2選手がいないか確認
+  const outerElite=entries.filter(e=>e.no>=3&&(e.grade==='A1'||e.grade==='A2'));
+  const outerEliteStrong=outerElite.filter(e=>{
+    const sessAvg=e.sessionResults.length?e.sessionResults.reduce((a,b)=>a+b,0)/e.sessionResults.length:3;
+    return sessAvg<=3.0||e.motorRate>=50;
+  });
+
+  // ③ 風向・波高でイン有利かアウト有利か判断
+  const inFavorable = (!isHead||spd<3)&&wave<10; // イン有利条件
+  const outFavorable = (isHead&&spd>=5)||wave>=15; // アウト有利条件
+
+  // ④ 展示タイムで当日の機力を最終確認
+  const in1etRankFinal=in1e2?(etRankMap[in1e2.no]||999):999;
+  const in1ExhibitGood=withET.length>0&&in1etRankFinal<=2;
+  const in1ExhibitBad =withET.length>0&&in1etRankFinal>=withET.length-1;
+
+  // ⑤ 総合判断で軸を1艇に絞る
   let axis=sorted[0]?.no, axisReason='';
 
-  // イン強コースで1号艇好調なら1号艇軸
-  if(nigeStrong && sc.nige>=0.38 && (vc.in1||54)>=55){
+  if(in1Strong&&inFavorable&&in1ExhibitGood){
+    // イン鉄板：1号艇が全条件OK
     axis=1;
-    axisReason=`インが強いコース(${vc.in1}%)・1号艇展示${in1etR}位・逃げ率${Math.round(sc.nige*100)}%`;
-  } else if(isHead&&spd>=5&&sorted[0].no!==1){
-    axis=sorted[0].no;
-    axisReason=`向かい風${spd}m→イン不利・${axis}号艇が展開上有利`;
-  } else if(in1etR>=4&&(vc.in1||54)<56){
-    axis=sorted[0].no;
-    axisReason=`1号艇展示${in1etR}位で機力不安・${axis}号艇が台頭`;
+    axisReason=`①M${in1Motor.toFixed(0)}%好調②アウトA1なし③イン有利④展示${in1etRankFinal}位→イン鉄板`;
+  } else if(in1Weak||(outFavorable&&outerEliteStrong.length>=2)||in1ExhibitBad){
+    // アウト有利：1号艇が弱い or 風が強い or 展示最下位
+    const outerCand=sorted.find(e=>e.no>=3&&(e.grade==='A1'||e.grade==='A2'||e.motorRate>=52));
+    if(outerCand){
+      axis=outerCand.no;
+      axisReason=`①1号艇${in1Weak?'不調':'普通'}②${outerCand.no}号艇${outerCand.grade}③${outFavorable?'アウト有利':''}④展開次第→${outerCand.no}号軸`;
+    } else {
+      axis=sorted[0]?.no;
+      axisReason=`総合スコア最上位の${axis}号艇を軸に選択`;
+    }
+  } else if(outerEliteStrong.length>=1&&!inFavorable){
+    // 1号艇普通・アウトに実力者：1号艇軸だが対抗を厚く
+    axis=1;
+    axisReason=`①1号艇普通②${outerEliteStrong[0].no}号艇${outerEliteStrong[0].grade}に注意③条件五分→1号軸・アウト対抗厚め`;
   } else {
-    axis=sorted[0].no;
-    axisReason=`総合評価(展示・機力・今節)で${axis}号艇が最上位`;
+    // 通常：総合スコア最上位
+    axis=sorted[0]?.no;
+    axisReason=`①M${in1Motor.toFixed(0)}%②③④総合評価→${axis}号艇軸`;
   }
 
-  const axis2=sorted[1]?.no; // 第2軸
+  const axis2=sorted.find(e=>e.no!==axis)?.no;
 
   // ━━ プロSTEP3: 2着・3着を「広く」持つ ━━
   // 2着候補: axis以外でp2上位4艇

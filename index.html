@@ -1843,14 +1843,16 @@ function calcPlaceProbs(entries, vc, wx, expand, etRankMap, withET, W){
     else if(no>=3&&stVal>0&&stVal<=0.16) courseAdv*=1.10;
 
     // 級別ボーナス（プロが重視）
-    // A1がアウトにいる時は特に警戒
     const gradeBonus={
-      'A1': no>=4 ? 1.35 : no>=2 ? 1.15 : 1.10, // A1はどこからでも来る
+      'A1': no>=4 ? 1.35 : no>=2 ? 1.15 : 1.10,
       'A2': no>=4 ? 1.20 : no>=2 ? 1.08 : 1.05,
-      'B1': 1.00, // 基準
-      'B2': no>=4 ? 0.75 : 0.85, // B2のアウトは厳しい
+      'B1': 1.00,
+      'B2': no>=4 ? 0.75 : 0.85,
     }[e.grade]||1.00;
     courseAdv*=gradeBonus;
+
+    // 1着・2着・3着確率
+    const p1raw=courseAdv*0.60+abilityScore*0.40;
     const p2raw=abilityScore*0.55+(1-courseAdv)*0.18+(p1raw*0.27);
     const p3raw=abilityScore*0.50+(p2raw*0.33);
     prob[no]={p1:Math.max(0.005,p1raw), p2:Math.max(0.005,p2raw), p3:Math.max(0.005,p3raw)};

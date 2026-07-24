@@ -626,21 +626,34 @@ function renderRaceButtons(v){
   row.innerHTML='';
   const ymd2=getToday();
   const nowMs=Date.now();
+  const todayStr2=`${ymd2.slice(0,4)}-${ymd2.slice(4,6)}-${ymd2.slice(6,8)}`;
   const venueCode=parseInt(v.code);
   const raceNos=new Set();
   APP.rawPrograms.forEach(p=>{
     if(parseInt(p.race_stadium_number)===venueCode) raceNos.add(parseInt(p.race_number));
   });
-  // 1〜12を表示、データのないレースは無効
-  const now=Date.now();
   for(let i=1;i<=12;i++){
     const btn=document.createElement('button');
     btn.className='r-btn';
     btn.textContent=`${i}R`;
     const hasData=raceNos.has(i);
-    if(!hasData) btn.disabled=true;
-    else btn.onclick=()=>selectRace(i,btn);
-    if(!btn.disabled) btn.onclick=()=>selectRace(i,btn);
+    const prog=getProgram(v.code,i);
+
+    let isDone=false;
+    if(prog&&prog.race_closed_at){
+      const raceDate=prog.race_date||prog.race_closed_at.slice(0,10);
+      // データの日付が今日の場合のみ締切チェック（過去データなら全部有効にする）
+      if(raceDate===todayStr2){
+        isDone=new Date(prog.race_closed_at).getTime()<nowMs;
+      }
+    }
+
+    if(!hasData||isDone){
+      btn.disabled=true;
+      if(isDone) btn.title='締切済み';
+    } else {
+      btn.onclick=()=>selectRace(i,btn);
+    }
     row.appendChild(btn);
   }
 }

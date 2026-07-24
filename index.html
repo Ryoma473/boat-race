@@ -600,7 +600,8 @@ function selectVenue(v,el){
 function renderRaceButtons(v){
   const row=document.getElementById('raceRow');
   row.innerHTML='';
-  // このレース場の全レース番号を取得
+  const ymd2=getToday();
+  const nowMs=Date.now();
   const venueCode=parseInt(v.code);
   const raceNos=new Set();
   APP.rawPrograms.forEach(p=>{
@@ -613,14 +614,18 @@ function renderRaceButtons(v){
     btn.className='r-btn';
     btn.textContent=`${i}R`;
     const hasData=raceNos.has(i);
-    // 締切時刻チェック
+    // 締切時刻チェック（今日のデータの場合のみ有効）
     const prog=getProgram(v.code,i);
     let isDone=false;
     if(prog&&prog.race_closed_at){
-      isDone=new Date(prog.race_closed_at).getTime()<now;
-      if(isDone) btn.disabled=true;
+      const closedAt=new Date(prog.race_closed_at).getTime();
+      const now=Date.now();
+      // 締切が1時間以上前の場合のみ無効化（今日のデータのみ適用）
+      const raceDate=prog.race_date||prog.race_closed_at?.slice(0,10)||'';
+      const todayStr2=ymd2.slice(0,4)+'-'+ymd2.slice(4,6)+'-'+ymd2.slice(6,8);
+      if(raceDate===todayStr2&&closedAt<nowMs-3600000) isDone=true;
     }
-    if(!hasData){ btn.disabled=true; }
+    if(!hasData||isDone){ btn.disabled=true; }
     if(!btn.disabled) btn.onclick=()=>selectRace(i,btn);
     row.appendChild(btn);
   }

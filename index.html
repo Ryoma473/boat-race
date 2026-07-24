@@ -445,62 +445,86 @@ async function loadTodayData(){
   const ymd=getToday();
   const yyyy=ymd.slice(0,4);
 
-  // programs と previews を並列取得
+  // BoatraceOpenAPIは当日データを翌日公開する仕様
+  // today.jsonは「今日公開されたデータ＝今日のレース出走表」として使用
   const progUrls=[
-    `https://boatraceopenapi.github.io/programs/v2/${yyyy}/${ymd}.json`,
     'https://boatraceopenapi.github.io/programs/v2/today.json',
+    `https://boatraceopenapi.github.io/programs/v2/${yyyy}/${ymd}.json`,
   ];
   const prevUrls=[
     `https://boatraceopenapi.github.io/previews/v3/${yyyy}/${ymd}.json`,
     `https://boatraceopenapi.github.io/previews/v2/${yyyy}/${ymd}.json`,
   ];
 
-  // programs取得
-  let data=null,lastErr='';
+  // ① 日付指定URL → ② today.json → ③ LocalStorageキャッシュ の順で試す
+  let data=null;
   for(const url of progUrls){
     try{
       const res=await fetch(url,{cache:'no-cache'});
       if(!res.ok) throw new Error(`HTTP ${res.status}`);
       data=await res.json();
+      console.log(`[出走表取得成功] ${url}`);
       break;
-    }catch(e){lastErr=e.message;}
+    }catch(e){
+      console.log(`[出走表] ${url} → ${e.message}`);
+    }
   }
+
+  // ③ 両方失敗 → LocalStorageキャッシュを使う
   if(!data){
-    stEl.innerHTML=`<span class="dot red"></span><span>取得失敗</span>`;
+    const cached=localStorage.getItem('brLastPrograms');
+    if(cached){
+      try{
+        data=JSON.parse(cached);
+        console.log('[出走表] キャッシュから復元');
+        stEl.innerHTML=`<span class="dot yellow"></span><span>キャッシュ表示中（自動更新中...）</span>`;
+      }catch(e){ data=null; }
+    }
+  }
+
+  // 全部失敗 → 5分後に再試行（画面を空にしない）
+  if(!data){
+    stEl.innerHTML=`<span class="dot red"></span><span>取得失敗（5分後に自動再試行）</span>`;
     document.getElementById('venueGrid').innerHTML=
-      `<div class="alert alert-err" style="grid-column:1/-1;">
-        データ取得エラー: ${lastErr}<br>
-        <span class="text-xs">BoatraceOpenAPIは約30分間隔で更新されます。</span>
-        <br><button class="btn btn-sm btn-primary mt1" onclick="loadTodayData()">再読み込み</button>
+      `<div class="alert alert-warn" style="grid-column:1/-1;">
+        データ取得に失敗しました。5分後に自動再試行します。<br>
+        <button class="btn btn-sm btn-primary mt1" onclick="loadTodayData()">今すぐ再取得</button>
       </div>`;
+    if(APP._retryTimer) clearTimeout(APP._retryTimer);
+    APP._retryTimer=setTimeout(()=>loadTodayData(), 5*60*1000);
     return;
   }
 
+  // データ取得成功 → 今日の日付と一致するか確認
+  const allPrograms=Array.isArray(data)?data:(data.programs||[]);
+  const todayStr=`${ymd.slice(0,4)}-${ymd.slice(4,6)}-${ymd.slice(6,8)}`;
 
-  // programs 配列を取り出す
-  APP.rawPrograms = Array.isArray(data) ? data : (data.programs||[]);
-
-  // 今日の日付のデータのみ使用（today.jsonが昨日のデータを返す場合がある）
-  const todayStr=ymd.slice(0,4)+'-'+ymd.slice(4,6)+'-'+ymd.slice(6,8); // 2026-07-24形式
-  const todayPrograms=APP.rawPrograms.filter(p=>{
+  // 今日のデータのみ抽出
+  const todayData=allPrograms.filter(p=>{
     const d=p.race_date||p.race_closed_at?.slice(0,10)||'';
     return d===todayStr;
   });
-  if(todayPrograms.length>0){
-    APP.rawPrograms=todayPrograms;
-    console.log(`[今日のデータ] ${todayPrograms.length}件（${todayStr}）`);
+
+  if(todayData.length>0){
+    // 今日のデータあり
+    APP.rawPrograms=todayData;
+    localStorage.setItem('brLastPrograms', JSON.stringify(todayData));
+    localStorage.setItem('brLastProgramsDate', todayStr);
+    console.log(`[出走表] 今日のデータ ${todayData.length}件`);
   } else {
-    console.log(`[警告] today.jsonに今日(${todayStr})のデータなし→全件使用`);
+    // 今日のデータなし → 取得できたデータをそのまま使う
+    // （APIの更新が遅れている場合でも選手データ・モーター・今節成績は使える）
+    APP.rawPrograms=allPrograms;
+    console.log(`[出走表] 最新データ使用 ${allPrograms.length}件（日付: ${allPrograms[0]?.race_date||'不明'}）`);
+    stEl.innerHTML=`<span class="dot yellow"></span><span>本日 データ読込中</span>`;
   }
+
+  console.log(`[出走表] 合計 ${APP.rawPrograms.length}件使用`);
+
   if(!APP.rawPrograms.length){
-    stEl.innerHTML=`<span class="dot yellow"></span><span>データなし</span>`;
-    document.getElementById('venueGrid').innerHTML=
-      `<div class="alert alert-warn" style="grid-column:1/-1;">
-        本日（${ymd}）の出走表データが見つかりません。<br>
-        <span class="text-xs">・APIは30分ごとに更新されます（朝8時ごろから順次反映）<br>
-        ・今日の開催情報は <a href="https://www.boatrace.jp" target="_blank" style="color:var(--teal);">boatrace.jp</a> でご確認ください</span><br>
-        <button class="btn btn-sm btn-primary mt1" onclick="loadTodayData()">再取得</button>
-      </div>`;
+    stEl.innerHTML=`<span class="dot yellow"></span><span>データ準備中</span>`;
+    if(APP._retryTimer) clearTimeout(APP._retryTimer);
+    APP._retryTimer=setTimeout(()=>loadTodayData(), 5*60*1000);
     return;
   }
 
@@ -614,18 +638,8 @@ function renderRaceButtons(v){
     btn.className='r-btn';
     btn.textContent=`${i}R`;
     const hasData=raceNos.has(i);
-    const prog=getProgram(v.code,i);
-    let isDone=false;
-    if(prog&&prog.race_closed_at){
-      const raceDate=prog.race_date||prog.race_closed_at?.slice(0,10)||'';
-      const todayStr2=ymd2.slice(0,4)+'-'+ymd2.slice(4,6)+'-'+ymd2.slice(6,8);
-      // 今日のデータの場合のみ締切チェック
-      if(raceDate===todayStr2){
-        isDone=new Date(prog.race_closed_at).getTime()<nowMs;
-      }
-      // 昨日以前のデータは締切チェックしない（全部有効）
-    }
-    if(!hasData||isDone){ btn.disabled=true; }
+    if(!hasData) btn.disabled=true;
+    else btn.onclick=()=>selectRace(i,btn);
     if(!btn.disabled) btn.onclick=()=>selectRace(i,btn);
     row.appendChild(btn);
   }

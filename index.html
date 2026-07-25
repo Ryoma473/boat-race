@@ -235,6 +235,28 @@ label{font-size:.72rem;color:var(--text2);display:block;margin-bottom:3px;}
       </div>
     </div>
     <div class="tc" id="tc-entry">
+      <!-- 展示情報 手入力 -->
+      <div class="card" style="background:var(--bg3);">
+        <div class="card-title">展示情報を手入力（公式アプリの「展示情報」タブで確認した値）</div>
+        <div class="tbl-wrap">
+          <table style="font-size:.78rem;">
+            <thead><tr>
+              <th style="width:50px;">艇</th><th>選手名</th>
+              <th style="width:90px;">展示ST</th><th style="width:100px;">展示タイム</th>
+            </tr></thead>
+            <tbody id="exhibitInputBody"></tbody>
+          </table>
+        </div>
+        <div class="form-row" style="margin-top:.5rem;">
+          <button class="btn btn-primary" onclick="applyManualExhibit()" style="flex:1;padding:.5rem;">反映</button>
+          <button class="btn" onclick="clearManualExhibit()" style="padding:.5rem;">クリア</button>
+        </div>
+        <div id="exhibitManualStatus" style="font-size:.72rem;color:var(--text3);margin-top:.3rem;"></div>
+        <div style="font-size:.68rem;color:var(--text3);margin-top:.3rem;line-height:1.6;">
+          展示ST: フライング取消後は「F.07」のように入力可（F付きは自動で警戒フラグ）<br>
+          展示タイム: 「6.75」のように秒単位で入力
+        </div>
+      </div>
       <div class="tbl-wrap">
         <table>
           <thead><tr>
@@ -756,11 +778,90 @@ async function loadRacePanel(){
   await loadSessionResults(v, rno);
 
   renderEntryTable();
+  renderExhibitInputTable();
   calcScores();
   renderScoreGrid();
 }
 
-// ── 手動天候入力 ──────────────────────────────────
+// ── 展示情報（ST・タイム）手入力 ──────────────────────
+function renderExhibitInputTable(){
+  const tbody=document.getElementById('exhibitInputBody');
+  if(!tbody) return;
+  if(!APP.entries.length){ tbody.innerHTML=''; return; }
+  tbody.innerHTML=APP.entries.map(e=>{
+    const stVal=e._manualST!=null?e._manualST:'';
+    const etVal=e._manualET!=null?e._manualET:'';
+    return `<tr>
+      <td><span class="bn bn${e.no}">${e.no}</span></td>
+      <td>${e.name}</td>
+      <td><input type="text" id="exST-${e.no}" value="${stVal}" placeholder="例:.09 or F.07" style="width:100%;padding:.3rem;font-size:.75rem;"></td>
+      <td><input type="text" id="exET-${e.no}" value="${etVal}" placeholder="例:6.75" style="width:100%;padding:.3rem;font-size:.75rem;"></td>
+    </tr>`;
+  }).join('');
+}
+
+function applyManualExhibit(){
+  if(!APP.entries.length) return;
+  let count=0;
+  APP.entries.forEach(e=>{
+    const stInput=document.getElementById(`exST-${e.no}`)?.value?.trim()||'';
+    const etInput=document.getElementById(`exET-${e.no}`)?.value?.trim()||'';
+
+    if(stInput){
+      // F.07 のようなフライング後表記に対応
+      const isF=stInput.toUpperCase().startsWith('F');
+      const stNum=parseFloat(stInput.replace(/[Ff]/,''))||0;
+      e.exhibitST=stNum;
+      e._manualST=stInput;
+      e._stFlying=isF;
+      count++;
+    }
+    if(etInput){
+      const etNum=parseFloat(etInput)||0;
+      if(etNum>0){
+        e.exhibitTime=etNum;
+        e._manualET=etInput;
+        count++;
+      }
+    }
+  });
+
+  // 展示タイム順位を再計算
+  const withET=APP.entries.filter(e=>e.exhibitTime>0).sort((a,b)=>b.exhibitTime-a.exhibitTime);
+  withET.forEach((e,i)=>{ e.exhibitRank=i+1; });
+
+  const statusEl=document.getElementById('exhibitManualStatus');
+  if(count>0){
+    statusEl.textContent=`✅ 反映済み（${count}項目）。スコア・予想に反映されます`;
+    statusEl.style.color='var(--teal)';
+  } else {
+    statusEl.textContent='展示ST・展示タイムを入力してください';
+    statusEl.style.color='var(--gold)';
+  }
+
+  // スコア再計算・出走表再描画
+  if(APP.entries.length) calcScores();
+  renderEntryTable();
+}
+
+function clearManualExhibit(){
+  APP.entries.forEach(e=>{
+    e._manualST=null;
+    e._manualET=null;
+    e._stFlying=false;
+  });
+  renderExhibitInputTable();
+  document.getElementById('exhibitManualStatus').textContent='クリアしました';
+  document.getElementById('exhibitManualStatus').style.color='var(--text3)';
+  // previewsデータがあれば再適用
+  if(APP.selectedVenue&&APP.selectedRace){
+    applyPreviewData(APP.selectedVenue, APP.selectedRace);
+  }
+  calcScores();
+  renderEntryTable();
+}
+
+
 function applyManualWeather(){
   const condition = document.getElementById('wxInputCondition').value;
   const dir       = document.getElementById('wxInputDir').value;
@@ -1871,6 +1972,9 @@ function calcPlaceProbs(entries, vc, wx, expand, etRankMap, withET, W){
     // 今節好調アウト艇ボーナス（z-scoreで既に評価されているが、極端な好調は追加ボーナス）
     if(no>=3&&sessAvg<=1.8) p1score*=1.20;
     if(no>=3&&st<=0.14) p1score*=1.10;
+
+    // フライング直後の選手はスタート評価を大幅に下げる（プロの鉄則）
+    if(e._stFlying) p1score*=0.75;
 
     const p2score = ability * 0.55 * gradeK + courseScore * 0.45;
     const p3score = ability * 0.50 * gradeK + courseScore * 0.50;

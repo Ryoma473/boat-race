@@ -1931,24 +1931,24 @@ function calcPlaceProbs(entries, vc, wx, expand, etRankMap, withET, W){
     const sessAvg=e.sessionResults.length>=2?(e.sessionResults.reduce((a,b)=>a+b,0)/e.sessionResults.length):3;
     const zSession = zscore(sessionVals, -sessAvg);
 
-    // 展示タイム（最重要：今日その瞬間の機力）
-    // 入力がある艇同士でのみ相対比較。未入力艇は0点（影響なし）扱い
+    // 展示タイム（今日その瞬間の機力。ただし1回の航走なので過信しない）
+    // 入力がある艇同士でのみ相対比較。未入力艇は影響なし
     let zExhibit=0;
     if(hasExhibitData&&e.exhibitTime>0){
       const validExhibitVals=exhibitVals.filter(v=>v>0);
       zExhibit=zscore(validExhibitVals, e.exhibitTime);
     }
 
-    // z-scoreの重み付き合成（プロSTEP4の優先順位を反映）
-    // ①展示タイムを最優先（入力があれば圧倒的な重み）
+    // z-scoreの重み付き合成
+    // 実績データ（今節成績・モーター・勝率）を主軸に、展示タイムは同格の補強材料として扱う
     const zTotal =
-      zExhibit * (hasExhibitData?1.8:0) + // ①展示タイム最重視（データがある時のみ）
-      zMotor   * 1.3 +   // ③モーター
-      zSession * 1.2 +   // ⑨今節成績
-      zRate    * 0.75 +  // ⑩全国勝率
-      zLocal   * 0.80 +  // ⑪当地勝率
-      zST      * 1.0 +   // ⑤スタート力
-      zBoat    * 0.45;   // ④ボート
+      zMotor   * 1.30 +  // ③モーター（実績）
+      zSession * 1.25 +  // ⑨今節成績（実績・最も信頼できる直近データ）
+      zExhibit * 0.70 +  // ①展示タイム（当日1回の参考値・過信しない）
+      zRate    * 0.85 +  // ⑩全国勝率
+      zLocal   * 0.90 +  // ⑪当地勝率
+      zST      * 0.75 +  // ⑤スタート力（展示STも同様に参考程度）
+      zBoat    * 0.50;   // ④ボート
 
     // z-scoreを0〜100スケールの「相対能力スコア」に変換
     const ability = Math.max(2, Math.min(98, 50 + zTotal*15));
@@ -1970,10 +1970,22 @@ function calcPlaceProbs(entries, vc, wx, expand, etRankMap, withET, W){
     }
     if(no===1&&in1Bad) courseScore*=0.75;
 
+    // 1号艇でも展示タイムの相対順位が悪ければコース有利度を軽度に割り引く（過信はしない）
+    if(no===1&&hasExhibitData&&e.exhibitTime>0){
+      const validCount=exhibitVals.filter(v=>v>0).length;
+      const in1EtRank=[...entries].filter(x=>x.exhibitTime>0).sort((a,b)=>b.exhibitTime-a.exhibitTime).findIndex(x=>x.no===1)+1;
+      if(in1EtRank>0&&validCount>=3){
+        if(in1EtRank===validCount)      courseScore*=0.85; // 最下位でも軽度減点に留める
+        else if(in1EtRank>=validCount-1) courseScore*=0.92; // 下位2番手
+        // 中位以上は減点なし（展示1回だけで過度に判断しない）
+      }
+    }
+
     // ━━ 1着スコア（コース×相対能力×級別） ━━
     let p1score;
     if(no===1){
-      p1score = courseScore * 0.60 + ability * 0.40 * gradeK;
+      // コース有利度を主軸に、能力（実績+展示）で補強する形に戻す
+      p1score = courseScore * 0.62 + ability * 0.38 * gradeK;
     } else if(no<=3){
       p1score = courseScore * 0.40 + ability * 0.60 * gradeK;
     } else {
@@ -2101,6 +2113,8 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   const in1etRankFinal=in1e?(etRankMap[in1e.no]||999):999;
   const in1ExhibitGood=withET.length>0&&in1etRankFinal<=2;
   const in1ExhibitBad =withET.length>0&&in1etRankFinal>=withET.length-1;
+  // 中位以下（展示で目立った良さがない）も軽度警戒フラグとして扱う
+  const in1ExhibitMid =withET.length>=4&&in1etRankFinal>=Math.ceil(withET.length/2)+1&&!in1ExhibitBad;
 
   // ⑤ 総合判断で軸を1艇に絞る
   let axis=sorted[0]?.no, axisReason='';
@@ -2110,7 +2124,7 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
     axis=1;
     axisReason=`①M${in1Motor.toFixed(0)}%好調②アウトA1なし③イン有利④展示${in1etRankFinal}位→イン鉄板`;
   } else if(in1Weak||(outFavorable&&outerEliteStrong.length>=2)||in1ExhibitBad){
-    // アウト有利：1号艇が弱い or 風が強い or 展示最下位
+    // アウト有利：1号艇が弱い or 風が強い or 展示最下位クラス
     const outerCand=sorted.find(e=>e.no>=3&&(e.grade==='A1'||e.grade==='A2'||e.motorRate>=52));
     if(outerCand){
       axis=outerCand.no;

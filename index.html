@@ -1914,6 +1914,9 @@ function calcPlaceProbs(entries, vc, wx, expand, etRankMap, withET, W){
     if(e.sessionResults.length>=2) return -(e.sessionResults.reduce((a,b)=>a+b,0)/e.sessionResults.length); // 着順は小さいほど良いので反転
     return -3; // データなしは平均的な扱い
   });
+  // 展示タイムはレース内で1艇でも入力があれば評価対象にする（速いほど高評価＝タイム大きい方が速い）
+  const hasExhibitData = entries.some(e=>e.exhibitTime>0);
+  const exhibitVals = entries.map(e=>e.exhibitTime>0?e.exhibitTime:0); // 未入力は0（平均扱いにしない）
 
   entries.forEach(e=>{
     const no=e.no;
@@ -1928,18 +1931,26 @@ function calcPlaceProbs(entries, vc, wx, expand, etRankMap, withET, W){
     const sessAvg=e.sessionResults.length>=2?(e.sessionResults.reduce((a,b)=>a+b,0)/e.sessionResults.length):3;
     const zSession = zscore(sessionVals, -sessAvg);
 
+    // 展示タイム（最重要：今日その瞬間の機力）
+    // 入力がある艇同士でのみ相対比較。未入力艇は0点（影響なし）扱い
+    let zExhibit=0;
+    if(hasExhibitData&&e.exhibitTime>0){
+      const validExhibitVals=exhibitVals.filter(v=>v>0);
+      zExhibit=zscore(validExhibitVals, e.exhibitTime);
+    }
+
     // z-scoreの重み付き合成（プロSTEP4の優先順位を反映）
-    // z-scoreは通常-3〜+3の範囲なので、そのまま重み付き平均が使える
+    // ①展示タイムを最優先（入力があれば圧倒的な重み）
     const zTotal =
-      zMotor   * 1.4 +   // ③モーター最重視
-      zSession * 1.3 +   // ⑨今節成績（好調・不調の差を鋭敏に反映）
-      zRate    * 0.8 +   // ⑩全国勝率
-      zLocal   * 0.85 +  // ⑪当地勝率
-      zST      * 1.1 +   // ⑤スタート力
-      zBoat    * 0.5;    // ④ボート
+      zExhibit * (hasExhibitData?1.8:0) + // ①展示タイム最重視（データがある時のみ）
+      zMotor   * 1.3 +   // ③モーター
+      zSession * 1.2 +   // ⑨今節成績
+      zRate    * 0.75 +  // ⑩全国勝率
+      zLocal   * 0.80 +  // ⑪当地勝率
+      zST      * 1.0 +   // ⑤スタート力
+      zBoat    * 0.45;   // ④ボート
 
     // z-scoreを0〜100スケールの「相対能力スコア」に変換
-    // z=0(平均)→50点、z=+2(かなり強い)→90点、z=-2(かなり弱い)→10点
     const ability = Math.max(2, Math.min(98, 50 + zTotal*15));
 
     // 級別係数

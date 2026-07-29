@@ -1918,6 +1918,32 @@ function calcPlaceProbs(entries, vc, wx, expand, etRankMap, withET, W){
   const hasExhibitData = entries.some(e=>e.exhibitTime>0);
   const exhibitVals = entries.map(e=>e.exhibitTime>0?e.exhibitTime:0); // 未入力は0（平均扱いにしない）
 
+  // ① モーター伸び傾向：今節の着順が前半→後半で良くなっているか（-1〜+1のトレンド値）
+  function calcTrend(results){
+    if(results.length<3) return 0; // データ不足はトレンドなし扱い
+    const half=Math.floor(results.length/2);
+    const firstHalf=results.slice(0,half);
+    const secondHalf=results.slice(half);
+    const firstAvg=firstHalf.reduce((a,b)=>a+b,0)/firstHalf.length;
+    const secondAvg=secondHalf.reduce((a,b)=>a+b,0)/secondHalf.length;
+    // 着順は小さいほど良いので、前半→後半で数字が減れば上昇トレンド
+    const diff=firstAvg-secondAvg; // プラスなら好調化
+    return Math.max(-2,Math.min(2,diff)); // -2〜+2にクリップ
+  }
+  const trendVals=entries.map(e=>calcTrend(e.sessionResults));
+
+  // ② スタート安定度：今節STのばらつき（標準偏差が小さいほど安定）
+  // 今節ST個別データがない場合は平均STのみで代用（ばらつき不明=中立）
+  function calcSTStability(e){
+    // sessionResultsには着順しかないため、平均STと展示STの差を安定度の代理指標にする
+    if(e.exhibitST>0&&e.avgST>0){
+      const diff=Math.abs(e.exhibitST-e.avgST);
+      return -diff; // 差が小さいほど安定（プラス評価）
+    }
+    return 0;
+  }
+  const stStabilityVals=entries.map(e=>calcSTStability(e));
+
   entries.forEach(e=>{
     const no=e.no;
 
@@ -1939,12 +1965,19 @@ function calcPlaceProbs(entries, vc, wx, expand, etRankMap, withET, W){
       zExhibit=zscore(validExhibitVals, e.exhibitTime);
     }
 
+    // ① モーター伸び傾向（今節後半に着順が良くなっているか）
+    const zTrend = zscore(trendVals, calcTrend(e.sessionResults));
+    // ② スタート安定度（展示STと平均STの乖離が小さいほど信頼できる）
+    const zStability = zscore(stStabilityVals, calcSTStability(e));
+
     // z-scoreの重み付き合成
     // 実績データ（今節成績・モーター・勝率）を主軸に、展示タイムは同格の補強材料として扱う
     const zTotal =
       zMotor   * 1.30 +  // ③モーター（実績）
       zSession * 1.25 +  // ⑨今節成績（実績・最も信頼できる直近データ）
       zExhibit * 0.70 +  // ①展示タイム（当日1回の参考値・過信しない）
+      zTrend   * 0.55 +  // モーター伸び傾向（今節後半の調子）
+      zStability * 0.40 +// スタート安定度
       zRate    * 0.85 +  // ⑩全国勝率
       zLocal   * 0.90 +  // ⑪当地勝率
       zST      * 0.75 +  // ⑤スタート力（展示STも同様に参考程度）

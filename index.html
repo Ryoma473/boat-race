@@ -20,6 +20,7 @@ nav{background:var(--bg2);border-bottom:1px solid var(--border);display:flex;ali
 .nav-tab{padding:.7rem .85rem;font-size:.82rem;font-weight:500;cursor:pointer;color:var(--text2);border:none;background:none;border-bottom:2px solid transparent;white-space:nowrap;transition:all .15s;}
 .nav-tab:hover{color:var(--text);}
 .nav-tab.active{color:var(--blue);border-bottom-color:var(--blue);}
+.pt-btn.active{background:var(--teal);color:#000;border-color:var(--teal);font-weight:700;}
 .page{display:none;padding:1rem;}
 .page.active{display:block;}
 .card{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:1rem;margin-bottom:.75rem;}
@@ -279,8 +280,19 @@ label{font-size:.72rem;color:var(--text2);display:block;margin-bottom:3px;}
       </div>
     </div>
     <div class="tc" id="tc-pred">
+      <div class="card" style="background:var(--bg3);margin-bottom:.75rem;">
+        <div class="card-title">予想点数を選択</div>
+        <div id="pointSelectRow" style="display:flex;gap:.4rem;flex-wrap:wrap;">
+          <button class="btn pt-btn" data-pt="6"  onclick="selectPredPoints(6,this)"  style="flex:1;min-width:60px;padding:.5rem;">6点</button>
+          <button class="btn pt-btn" data-pt="8"  onclick="selectPredPoints(8,this)"  style="flex:1;min-width:60px;padding:.5rem;">8点</button>
+          <button class="btn pt-btn active" data-pt="10" onclick="selectPredPoints(10,this)" style="flex:1;min-width:60px;padding:.5rem;">10点</button>
+          <button class="btn pt-btn" data-pt="15" onclick="selectPredPoints(15,this)" style="flex:1;min-width:60px;padding:.5rem;">15点</button>
+          <button class="btn pt-btn" data-pt="18" onclick="selectPredPoints(18,this)" style="flex:1;min-width:60px;padding:.5rem;">18点</button>
+          <button class="btn pt-btn" data-pt="20" onclick="selectPredPoints(20,this)" style="flex:1;min-width:60px;padding:.5rem;">20点</button>
+        </div>
+      </div>
       <button class="btn btn-primary" id="predBtn" onclick="generatePrediction()" style="width:100%;padding:.7rem;font-size:.88rem;margin-bottom:.75rem;">
-        ⚡ 10点予想を生成（三連単・期待値算出）
+        ⚡ <span id="predBtnLabel">10</span>点予想を生成（三連単・期待値算出）
       </button>
       <div id="predLoading" class="loading-box" style="display:none;"><div class="spinner"></div><div style="margin-top:.5rem;">スコア計算・期待値算出中...</div></div>
       <div id="predOutput"></div>
@@ -421,6 +433,7 @@ let APP={
   weather:{},
   scores:[],
   charts:{},
+  predPoints:10,    // 予想点数（ステップ⑤：6/8/10/15/18/20から選択）
 };
 
 // ===================================================
@@ -2065,12 +2078,50 @@ function estOdds(a,b,c, placeP, entries){
 }
 
 // ── STEP1: レース分類（5段階）──────────────────────
+// ── 予想点数の選択（ステップ⑤）─────────────────────
+function selectPredPoints(pt, btn){
+  APP.predPoints=pt;
+  document.querySelectorAll('.pt-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('predBtnLabel').textContent=pt;
+}
+
 function classifyRace(chaosScore){
-  if(chaosScore>=12) return {type:'超波乱', color:'var(--red)',    main:2,anti:3,hole:5};
-  if(chaosScore>=8)  return {type:'波乱',   color:'var(--orange)', main:3,anti:3,hole:4};
-  if(chaosScore>=5)  return {type:'普通',   color:'var(--gold)',   main:4,anti:3,hole:3};
-  if(chaosScore>=2)  return {type:'やや堅い',color:'var(--blue)',  main:5,anti:3,hole:2};
-  return               {type:'鉄板',   color:'var(--teal)',   main:6,anti:3,hole:1};
+  const total=APP.predPoints||10;
+  // 荒れ度に応じた「本線:対抗:穴」の基準比率（10点ベース）
+  let ratio, type, color;
+  if(chaosScore>=12){      type='超波乱'; color='var(--red)';    ratio=[2,3,5]; }
+  else if(chaosScore>=8){  type='波乱';   color='var(--orange)'; ratio=[3,3,4]; }
+  else if(chaosScore>=5){  type='普通';   color='var(--gold)';   ratio=[4,3,3]; }
+  else if(chaosScore>=2){  type='やや堅い';color='var(--blue)';  ratio=[5,3,2]; }
+  else{                    type='鉄板';   color='var(--teal)';   ratio=[6,3,1]; }
+
+  // 比率をtotal点数にスケール（本線を優先的に維持、余りは対抗→穴の順で配分）
+  const ratioSum=ratio[0]+ratio[1]+ratio[2];
+  let main=Math.round(ratio[0]/ratioSum*total);
+  let anti=Math.round(ratio[1]/ratioSum*total);
+  let hole=total-main-anti;
+
+  // 6点など少ない場合：本線に絞り込み、穴を最小限にする（プロは点数が少ないほど本線集中）
+  if(total<=6){
+    main=Math.max(3,Math.round(total*0.55));
+    anti=Math.max(1,total-main-Math.max(0,Math.round(total*0.1)));
+    hole=total-main-anti;
+    if(hole<0){ anti+=hole; hole=0; }
+  }
+  // 15点以上：本線は維持し、対抗・穴（紐・大穴）を厚めに肉付け
+  if(total>=15){
+    main=ratio[0]; // 本線の絶対数は10点ベースの数を維持
+    const remain=total-main;
+    anti=Math.round(remain*(ratio[1]/(ratio[1]+ratio[2])));
+    hole=remain-anti;
+  }
+
+  hole=Math.max(0,hole);
+  main=Math.max(1,main);
+  anti=Math.max(0,total-main-hole);
+
+  return {type, color, main, anti, hole, total};
 }
 
 // ── まくり差し候補（厳格条件）────────────────────────
@@ -2301,14 +2352,15 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   }
 
   // ━━ カテゴリ別に配分(mainCnt/antiCnt/holeCnt)を尊重して整形 ━━
+  const totalPt=race.total||10;
   const mainPicks=result.filter(p=>p.cat==='main').slice(0,mainCnt);
   const antiPicks=result.filter(p=>p.cat==='anti').slice(0,antiCnt);
   const holePicks=result.filter(p=>p.cat==='hole').slice(0,holeCnt);
   let finalResult=[...mainPicks,...antiPicks,...holePicks];
   const finalSeen=new Set(finalResult.map(p=>p.boats.join('-')));
 
-  // 10点に満たない場合は期待値順で補完
-  if(finalResult.length<10){
+  // 指定点数に満たない場合は期待値順で補完
+  if(finalResult.length<totalPt){
     const all=[];
     for(const a of sorted.map(e=>e.no)){
       for(const b of sorted.map(e=>e.no)){
@@ -2324,7 +2376,7 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
     }
     all.sort((x,y)=>triProb(...y.boats,placeP,entries)-triProb(...x.boats,placeP,entries));
     for(const p of all){
-      if(finalResult.length>=10) break;
+      if(finalResult.length>=totalPt) break;
       const key=p.boats.join('-');
       if(!finalSeen.has(key)){finalSeen.add(key);finalResult.push(p);}
     }
@@ -2334,7 +2386,7 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   APP._axisReason=axisReason;
   APP._axis=axis;
 
-  return finalResult.slice(0,10);
+  return finalResult.slice(0,totalPt);
 }
 
 // ── プロ思考の予想理由生成 ────────────────────────────

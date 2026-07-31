@@ -2241,6 +2241,8 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
     axisConfidence = axisConfidence==='高' ? '中' : '低';
   }
 
+  const axis2=sorted.find(e=>e.no!==axis)?.no;
+
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // 残り展開テンプレート方式
   // 「1着がどう決まるか」だけでなく「その後どう残るか」を
@@ -2582,6 +2584,16 @@ function runPred(){
 
   // まくり差し候補
   const makiSashiCands=findMakiSashiCandidates(entries,etRankMap,withET);
+  // 穴候補：アウト艇で今節好調・モーター好調・展示上位の艇（buildPicksFromExpand内と同一条件）
+  const holeCandEntries=[...entries].filter(e=>{
+    if(e.no<3) return false;
+    const sessGood=e.sessionResults.length>=2&&
+      e.sessionResults.reduce((a,b)=>a+b,0)/e.sessionResults.length<=2.5;
+    const motorGood=e.motorRate>=50;
+    const etTop=etRankMap[e.no]&&etRankMap[e.no]<=3;
+    const stFast=e.exhibitST>0&&e.exhibitST<=0.15||e.avgST>0&&e.avgST<=0.16;
+    return sessGood||motorGood||etTop||stFast;
+  }).sort((a,b)=>(placeP[b.no]?.p1||0)-(placeP[a.no]?.p1||0));
   const canHole=chaosScore>=3&&(makiSashiCands.length>0||holeCandEntries.length>0);
 
   // ── STEP7: 展開から買い目生成 ─────────────────────

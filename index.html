@@ -2128,9 +2128,11 @@ function classifyRace(chaosScore){
 function findMakiSashiCandidates(entries, etRankMap, withET){
   return entries.filter(e=>{
     if(e.no<3) return false;
-    const stFast=(e.exhibitST>0&&e.exhibitST<=0.14)||(e.avgST>0&&e.avgST<=0.15);
-    const nobiFoot=etRankMap[e.no]&&etRankMap[e.no]<=Math.ceil(withET.length/2.5);
-    const motorOk=e.motorRate>=48;
+    // ST条件：展示ST優先、なければ平均STで判定（基準を実用的な0.17に緩和）
+    const stFast=(e.exhibitST>0&&e.exhibitST<=0.16)||(e.exhibitST<=0&&e.avgST>0&&e.avgST<=0.17);
+    // 伸び足：展示タイムが入力されている場合のみ判定（未入力ならfalse扱いでOK、他条件で拾う）
+    const nobiFoot=withET.length>0&&etRankMap[e.no]&&etRankMap[e.no]<=Math.ceil(withET.length/2);
+    const motorOk=e.motorRate>=46;
     const sessionOk=e.sessionResults.length===0||
       e.sessionResults.slice(-2).filter(x=>x<=3).length>=1;
     return (stFast||nobiFoot)&&motorOk&&sessionOk;
@@ -2200,34 +2202,44 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   // 中位以下（展示で目立った良さがない）も軽度警戒フラグとして扱う
   const in1ExhibitMid =withET.length>=4&&in1etRankFinal>=Math.ceil(withET.length/2)+1&&!in1ExhibitBad;
 
-  // ⑤ 総合判断で軸を1艇に絞る
-  let axis=sorted[0]?.no, axisReason='';
+  // ⑤ 総合判断で軸を1艇に絞る（+確信度を判定）
+  let axis=sorted[0]?.no, axisReason='', axisConfidence='中'; // 高/中/低
 
   if(in1Strong&&inFavorable&&in1ExhibitGood){
-    // イン鉄板：1号艇が全条件OK
+    // イン鉄板：1号艇が全条件OK → 確信度高
     axis=1;
+    axisConfidence='高';
     axisReason=`①M${in1Motor.toFixed(0)}%好調②アウトA1なし③イン有利④展示${in1etRankFinal}位→イン鉄板`;
   } else if(in1Weak||(outFavorable&&outerEliteStrong.length>=2)||in1ExhibitBad){
-    // アウト有利：1号艇が弱い or 風が強い or 展示最下位クラス
+    // アウト有利：1号艇が弱い or 風が強い or 展示最下位クラス → 確信度中（アウトは荒れやすい）
     const outerCand=sorted.find(e=>e.no>=3&&(e.grade==='A1'||e.grade==='A2'||e.motorRate>=52));
     if(outerCand){
       axis=outerCand.no;
+      axisConfidence='低'; // アウト軸は的中率が下がりやすいので確信度を下げる
       axisReason=`①1号艇${in1Weak?'不調':'普通'}②${outerCand.no}号艇${outerCand.grade}③${outFavorable?'アウト有利':''}④展開次第→${outerCand.no}号軸`;
     } else {
       axis=sorted[0]?.no;
+      axisConfidence='低';
       axisReason=`総合スコア最上位の${axis}号艇を軸に選択`;
     }
   } else if(outerEliteStrong.length>=1&&!inFavorable){
-    // 1号艇普通・アウトに実力者：1号艇軸だが対抗を厚く
+    // 1号艇普通・アウトに実力者：1号艇軸だが対抗を厚く → 確信度中
     axis=1;
+    axisConfidence='中';
     axisReason=`①1号艇普通②${outerEliteStrong[0].no}号艇${outerEliteStrong[0].grade}に注意③条件五分→1号軸・アウト対抗厚め`;
   } else {
-    // 通常：総合スコア最上位
+    // 通常：総合スコア最上位 → 確信度中〜低（明確な決め手がない）
     axis=sorted[0]?.no;
-    axisReason=`①M${in1Motor.toFixed(0)}%②③④総合評価→${axis}号艇軸`;
+    axisConfidence='低';
+    axisReason=`①M${in1Motor.toFixed(0)}%②③④総合評価→${axis}号艇軸（決め手薄く要警戒）`;
   }
 
-  const axis2=sorted.find(e=>e.no!==axis)?.no;
+  // 1着確率のトップ2の差が小さい場合も確信度を下げる（僅差なら分散すべき）
+  const top1p=placeP[sorted[0]?.no]?.p1||0;
+  const top2p=placeP[sorted[1]?.no]?.p1||0;
+  if(top2p>0&&(top1p-top2p)/top1p<0.15){
+    axisConfidence = axisConfidence==='高' ? '中' : '低';
+  }
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // 残り展開テンプレート方式
@@ -2327,6 +2339,24 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
     addPick(axis, b2, in1no, '対抗','anti', `${axis}軸・${b2}浮上`);
   }
 
+  // ━━ 確信度が低い/中の場合：第2軸の1着パターンを本線に格上げ ━━
+  // 唐津11R・浜名湖5R・児島4Rのように「軸を外すと全滅」を防ぐための分散
+  if(axisConfidence!=='高'&&axis2){
+    const axis2p2=[...entries].filter(e=>e.no!==axis2)
+      .sort((a,b)=>(placeP[b.no]?.p2||0)-(placeP[a.no]?.p2||0));
+    const a2b1=axis2p2[0]?.no, a2b2=axis2p2[1]?.no;
+    addPick(axis2, a2b1, axis, '本線','main', `分散：${axis2}号艇軸も有力（確信度${axisConfidence}のため）`);
+    addPick(axis2, axis, a2b1, '本線','main', `分散：${axis2}→${axis}の展開`);
+    if(axisConfidence==='低'){
+      // 確信度が低い時はさらに第3軸候補も対抗に追加
+      const axis3=sorted.find(e=>e.no!==axis&&e.no!==axis2)?.no;
+      if(axis3){
+        addPick(axis3, axis, axis2, '対抗','anti', `分散：${axis3}号艇も僅差で有力`);
+      }
+      addPick(axis2, a2b2, axis, '対抗','anti', `${axis2}軸・${a2b2}が2着の別展開`);
+    }
+  }
+
   // ━━ 穴: アウト好調艇が1着（まくり・まくり差しの波乱）━━
   if(canHole){
     const holePool=[...makiSashiCands];
@@ -2383,7 +2413,8 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   }
 
   // axisReasonsをAPPに保存（予想理由で使用）
-  APP._axisReason=axisReason;
+  APP._axisReason=axisReason+`【確信度:${axisConfidence}】`;
+  APP._axisConfidence=axisConfidence;
   APP._axis=axis;
 
   return finalResult.slice(0,totalPt);
@@ -2551,7 +2582,7 @@ function runPred(){
 
   // まくり差し候補
   const makiSashiCands=findMakiSashiCandidates(entries,etRankMap,withET);
-  const canHole=chaosScore>=5&&makiSashiCands.length>0;
+  const canHole=chaosScore>=3&&(makiSashiCands.length>0||holeCandEntries.length>0);
 
   // ── STEP7: 展開から買い目生成 ─────────────────────
   const rawPicks=buildPicksFromExpand(placeP,expand,entries,raceClass,makiSashiCands,canHole,etRankMap);

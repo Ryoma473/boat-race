@@ -244,6 +244,7 @@ label{font-size:.72rem;color:var(--text2);display:block;margin-bottom:3px;}
             <thead><tr>
               <th style="width:50px;">艇</th><th>選手名</th>
               <th style="width:90px;">展示ST</th><th style="width:100px;">展示タイム</th>
+              <th style="width:80px;">進入コース</th>
             </tr></thead>
             <tbody id="exhibitInputBody"></tbody>
           </table>
@@ -255,7 +256,9 @@ label{font-size:.72rem;color:var(--text2);display:block;margin-bottom:3px;}
         <div id="exhibitManualStatus" style="font-size:.72rem;color:var(--text3);margin-top:.3rem;"></div>
         <div style="font-size:.68rem;color:var(--text3);margin-top:.3rem;line-height:1.6;">
           展示ST: フライング取消後は「F.07」のように入力可（F付きは自動で警戒フラグ）<br>
-          展示タイム: 「6.75」のように秒単位で入力
+          並び順の注記（「まくり」「押し」「差し」）も一緒に入力可（例:「.12まくり」）→自動で展開評価に反映<br>
+          展示タイム: 「6.75」のように秒単位で入力<br>
+          進入コース: 枠なりと違う場合のみ入力（例: 6号艇が2コースに入るなら「2」）。空欄は枠なり扱い
         </div>
       </div>
       <div class="tbl-wrap">
@@ -796,7 +799,7 @@ async function loadRacePanel(){
   renderScoreGrid();
 }
 
-// ── 展示情報（ST・タイム）手入力 ──────────────────────
+// ── 展示情報（ST・タイム・進入コース）手入力 ──────────────
 function renderExhibitInputTable(){
   const tbody=document.getElementById('exhibitInputBody');
   if(!tbody) return;
@@ -804,11 +807,23 @@ function renderExhibitInputTable(){
   tbody.innerHTML=APP.entries.map(e=>{
     const stVal=e._manualST!=null?e._manualST:'';
     const etVal=e._manualET!=null?e._manualET:'';
+    const courseVal=e._manualCourse!=null?e._manualCourse:'';
     return `<tr>
       <td><span class="bn bn${e.no}">${e.no}</span></td>
       <td>${e.name}</td>
-      <td><input type="text" id="exST-${e.no}" value="${stVal}" placeholder="例:.09 or F.07" style="width:100%;padding:.3rem;font-size:.75rem;"></td>
+      <td><input type="text" id="exST-${e.no}" value="${stVal}" placeholder="例:.09 F.07 .12まくり" style="width:100%;padding:.3rem;font-size:.75rem;"></td>
       <td><input type="text" id="exET-${e.no}" value="${etVal}" placeholder="例:6.75" style="width:100%;padding:.3rem;font-size:.75rem;"></td>
+      <td>
+        <select id="exCourse-${e.no}" style="width:100%;padding:.3rem;font-size:.75rem;">
+          <option value="">枠なり(${e.no})</option>
+          <option value="1" ${courseVal==='1'?'selected':''}>1コース</option>
+          <option value="2" ${courseVal==='2'?'selected':''}>2コース</option>
+          <option value="3" ${courseVal==='3'?'selected':''}>3コース</option>
+          <option value="4" ${courseVal==='4'?'selected':''}>4コース</option>
+          <option value="5" ${courseVal==='5'?'selected':''}>5コース</option>
+          <option value="6" ${courseVal==='6'?'selected':''}>6コース</option>
+        </select>
+      </td>
     </tr>`;
   }).join('');
 }
@@ -819,14 +834,38 @@ function applyManualExhibit(){
   APP.entries.forEach(e=>{
     const stInput=document.getElementById(`exST-${e.no}`)?.value?.trim()||'';
     const etInput=document.getElementById(`exET-${e.no}`)?.value?.trim()||'';
+    const courseInput=document.getElementById(`exCourse-${e.no}`)?.value?.trim()||'';
+
+    if(courseInput){
+      e.approach=parseInt(courseInput);
+      e._manualCourse=courseInput;
+      count++;
+    } else if(e._manualCourse){
+      // クリアされたら枠なりに戻す
+      e.approach=e.no;
+      e._manualCourse=null;
+    }
 
     if(stInput){
       // F.07 のようなフライング後表記に対応
       const isF=stInput.toUpperCase().startsWith('F');
-      const stNum=parseFloat(stInput.replace(/[Ff]/,''))||0;
+      // 「まくり」「押し」「差し」等、公式アプリの並び順注記を検出
+      const hasMakuri=/まくり|捲り/.test(stInput);
+      const hasOshi=/押し/.test(stInput);
+      const hasSashi=/差し/.test(stInput);
+      // 数値部分だけを抽出（.33、F.07、.12まくり などから数値を取る）
+      const numMatch=stInput.match(/[Ff]?\.?(\d+)/);
+      let stNum=0;
+      if(numMatch){
+        const raw=stInput.replace(/[Ff]/,'').replace(/[^\d.]/g,'');
+        stNum=parseFloat(raw)||0;
+      }
       e.exhibitST=stNum;
       e._manualST=stInput;
       e._stFlying=isF;
+      e._stNote={maki:hasMakuri, oshi:hasOshi, sashi:hasSashi};
+      // 異常な出遅れ検出（0.25秒以上は大きく出遅れとみなす）
+      e._stSevereLate = stNum>=0.25;
       count++;
     }
     if(etInput){
@@ -2002,51 +2041,58 @@ function calcPlaceProbs(entries, vc, wx, expand, etRankMap, withET, W){
     // 級別係数
     const gradeK={'A1':1.20,'A2':1.08,'B1':1.00,'B2':0.85}[e.grade]||1.00;
 
-    // ━━ コース有利度（全国実データ準拠） ━━
+    // ━━ コース有利度（進入コース基準・全国実データ準拠） ━━
+    // 枠番(no)ではなく実際の進入コース(approach)でコース有利度を判定
+    // 手動入力があればそれを使用、なければ枠なり(no)を使う
+    const courseNo = e.approach || no;
     const courseBase={1:54,2:13,3:11,4:11,5:7,6:4};
-    let courseScore = courseBase[no]||4;
-    if(no===1) courseScore = vc.in1||54;
+    let courseScore = courseBase[courseNo]||4;
+    if(courseNo===1) courseScore = vc.in1||54;
 
-    // 向かい風補正
+    // 向かい風補正（進入コース基準）
     if(isHead&&spd>=5){
-      if(no===1) courseScore*=(1-0.25*Math.min(1,spd/8));
-      else if(no>=4) courseScore*=(1+0.20*Math.min(1,spd/8));
+      if(courseNo===1) courseScore*=(1-0.25*Math.min(1,spd/8));
+      else if(courseNo>=4) courseScore*=(1+0.20*Math.min(1,spd/8));
     } else if(isTail&&spd>=4){
-      if(no===1) courseScore*=1.12;
+      if(courseNo===1) courseScore*=1.12;
     }
-    if(no===1&&in1Bad) courseScore*=0.75;
+    if(courseNo===1&&no===1&&in1Bad) courseScore*=0.75;
 
-    // 1号艇でも展示タイムの相対順位が悪ければコース有利度を軽度に割り引く（過信はしない）
-    if(no===1&&hasExhibitData&&e.exhibitTime>0){
+    // インコース進入艇でも展示タイムの相対順位が悪ければコース有利度を軽度に割り引く
+    if(courseNo===1&&hasExhibitData&&e.exhibitTime>0){
       const validCount=exhibitVals.filter(v=>v>0).length;
-      const in1EtRank=[...entries].filter(x=>x.exhibitTime>0).sort((a,b)=>b.exhibitTime-a.exhibitTime).findIndex(x=>x.no===1)+1;
-      if(in1EtRank>0&&validCount>=3){
-        if(in1EtRank===validCount)      courseScore*=0.85; // 最下位でも軽度減点に留める
-        else if(in1EtRank>=validCount-1) courseScore*=0.92; // 下位2番手
+      const inEtRank=[...entries].filter(x=>x.exhibitTime>0).sort((a,b)=>b.exhibitTime-a.exhibitTime).findIndex(x=>x.no===e.no)+1;
+      if(inEtRank>0&&validCount>=3){
+        if(inEtRank===validCount)      courseScore*=0.85; // 最下位でも軽度減点に留める
+        else if(inEtRank>=validCount-1) courseScore*=0.92; // 下位2番手
         // 中位以上は減点なし（展示1回だけで過度に判断しない）
       }
     }
 
     // ━━ 1着スコア（コース×相対能力×級別） ━━
     let p1score;
-    if(no===1){
+    if(courseNo===1){
       // コース有利度を主軸に、能力（実績+展示）で補強する形に戻す
       p1score = courseScore * 0.62 + ability * 0.38 * gradeK;
-    } else if(no<=3){
+    } else if(courseNo<=3){
       p1score = courseScore * 0.40 + ability * 0.60 * gradeK;
     } else {
       p1score = courseScore * 0.25 + ability * 0.75 * gradeK;
     }
 
-    // 今節好調アウト艇ボーナス（z-scoreで既に評価されているが、極端な好調は追加ボーナス）
-    if(no>=3&&sessAvg<=1.8) p1score*=1.20;
-    if(no>=3&&st<=0.14) p1score*=1.10;
+    // 今節好調アウト艇ボーナス（進入コースがアウトの場合）
+    if(courseNo>=3&&sessAvg<=1.8) p1score*=1.20;
+    if(courseNo>=3&&st<=0.14) p1score*=1.10;
 
     // フライング直後の選手はスタート評価を大幅に下げる（プロの鉄則）
     if(e._stFlying) p1score*=0.75;
 
-    const p2score = ability * 0.55 * gradeK + courseScore * 0.45;
-    const p3score = ability * 0.50 * gradeK + courseScore * 0.50;
+    // ━━ 2着・3着スコア（1着ほどコースに縛られない）━━
+    // 1着はコース有利度が支配的だが、2・3着は「一度レースが動いた後の展開」なので
+    // アウト艇でも粘り込み・差し込みで十分入る。コースの影響を弱め、能力(z-score)を主軸にする
+    const courseScoreForPlace = Math.sqrt(Math.max(1,courseScore)); // 平方根で差を圧縮（4点→2点、54点→7.3点程度に）
+    const p2score = ability * 0.75 * gradeK + courseScoreForPlace * 0.25;
+    const p3score = ability * 0.72 * gradeK + courseScoreForPlace * 0.28;
 
     prob[no]={p1:Math.max(0.1,p1score), p2:Math.max(0.1,p2score), p3:Math.max(0.1,p3score), ability, zTotal};
   });

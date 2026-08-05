@@ -2022,18 +2022,26 @@ function calcPlaceProbs(entries, vc, wx, expand, etRankMap, withET, W){
     // ② スタート安定度（展示STと平均STの乖離が小さいほど信頼できる）
     const zStability = zscore(stStabilityVals, calcSTStability(e));
 
+    // ③④ 機力アンバランス・ペナルティ
+    // モーターは良いがボートが著しく悪い（またはその逆）場合、
+    // 「直線は伸びるがターンで踏ん張れない」等のアンバランスとして減点する
+    const motorBoatGap = Math.abs(zMotor - zBoat);
+    const imbalancePenalty = motorBoatGap>=1.5 ? -0.3*(motorBoatGap-1.5) : 0;
+
     // z-scoreの重み付き合成
     // 実績データ（今節成績・モーター・勝率）を主軸に、展示タイムは同格の補強材料として扱う
+    // モーター・ボートは「機力」としてセットで見るため、重みを近づける（1.30→1.10、0.50→0.85）
     const zTotal =
-      zMotor   * 1.30 +  // ③モーター（実績）
+      zMotor   * 1.10 +  // ③モーター（実績・機力の一部）
+      zBoat    * 0.85 +  // ④ボート（実績・機力の一部。モーターと近い重みに）
+      imbalancePenalty +  // 機力アンバランスへの減点
       zSession * 1.25 +  // ⑨今節成績（実績・最も信頼できる直近データ）
       zExhibit * 0.70 +  // ①展示タイム（当日1回の参考値・過信しない）
       zTrend   * 0.55 +  // モーター伸び傾向（今節後半の調子）
       zStability * 0.40 +// スタート安定度
       zRate    * 0.85 +  // ⑩全国勝率
       zLocal   * 0.90 +  // ⑪当地勝率
-      zST      * 0.75 +  // ⑤スタート力（展示STも同様に参考程度）
-      zBoat    * 0.50;   // ④ボート
+      zST      * 0.75;   // ⑤スタート力（展示STも同様に参考程度）
 
     // z-scoreを0〜100スケールの「相対能力スコア」に変換
     const ability = Math.max(2, Math.min(98, 50 + zTotal*15));

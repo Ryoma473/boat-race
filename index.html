@@ -2167,7 +2167,7 @@ function classifyRace(chaosScore){
   main=Math.max(1,main);
   anti=Math.max(0,total-main-hole);
 
-  return {type, color, main, anti, hole, total};
+  return {type, color, main, anti, hole, total, chaosScore};
 }
 
 // ── まくり差し候補（厳格条件）────────────────────────
@@ -2314,9 +2314,11 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   const seen=new Set();
   const result=[];
 
-  function addPick(a,b,c,label,cat,note){
+  // 1号艇を必ず絡める制約（プロ方針③）: 大穴パターンのみ例外を許可
+  function addPick(a,b,c,label,cat,note,allowNoIn1){
     if(!a||!b||!c) return false;
     if(a===b||b===c||a===c) return false;
+    if(!allowNoIn1&&a!==1&&b!==1&&c!==1) return false; // 1号艇が絡まない目は原則却下
     const key=`${a}-${b}-${c}`;
     if(seen.has(key)) return false;
     seen.add(key);
@@ -2355,40 +2357,85 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
       addPick(1, b2, c1, '本線','main', `【逃げ残り】${b2}号艇が2着浮上パターン`);
     }
   } else {
-    // アウト/2・3号艇軸：その艇の展開通りが本線
+    // アウト/2・3号艇軸：その艇の展開通りが本線（1号艇は2・3着に必ず絡める）
     addPick(axis, in1no, b1, '本線','main', `${axis}号艇軸・1号艇残りの的中率重視パターン`);
     addPick(axis, b1, in1no, '本線','main', `${axis}軸・${b1}→1号艇残り`);
-    addPick(axis, in1no, c1, '本線','main', `${axis}号艇軸・3着まで広げる`);
+    addPick(in1no, axis, b1, '本線','main', `1号艇が踏ん張り${axis}号艇を凌ぐ逆転本線`);
   }
 
-  // ━━ ② 押さえ：本線が外れた時の保険（軸は同じ・2,3着を変える）━━
-  addPick(axis, b3||b2, c1, '押さえ','anti', `${axis}軸・${b3||b2}が浮上する保険パターン`);
-  addPick(axis, b1, c3||c2, '押さえ','anti', `${axis}軸・3着に${c3||c2}が入る保険`);
-  if(axisConfidence!=='高'&&axis2){
-    addPick(axis2, axis, b1, '押さえ','anti', `第2軸${axis2}号艇が1着の保険（確信度${axisConfidence}）`);
+  // ━━ ② 押さえ：本線が外れた時の保険（1号艇は必ずどこかに絡める）━━
+  if(axis===1){
+    addPick(1, b3||b2, c1, '押さえ','anti', `1号艇軸・${b3||b2}が浮上する保険パターン`);
+    addPick(1, b1, c3||c2, '押さえ','anti', `1号艇軸・3着に${c3||c2}が入る保険`);
+  } else {
+    addPick(axis, in1no, c1, '押さえ','anti', `${axis}軸・1号艇2着・3着に${c1}の保険`);
+    addPick(in1no, b1, axis, '押さえ','anti', `1号艇が意地を見せて残る保険パターン`);
+  }
+  if(axisConfidence!=='高'&&axis2&&axis2!==1){
+    addPick(axis2, 1, b1, '押さえ','anti', `第2軸${axis2}号艇・1号艇絡みの保険（確信度${axisConfidence}）`);
   }
 
-  // ━━ ③ 展開別パターン：差し・まくり・まくり差しを明示的にカバー ━━
-  // 差し（2・3コースが差す展開）
-  const sashiBoat=sashiCand.find(e=>e.no!==axis);
-  if(sashiBoat){
-    addPick(sashiBoat.no, in1no!==sashiBoat.no?in1no:axis, b1, '差し','anti',
-      `【差し】${sashiBoat.no}号艇${sashiBoat.name}が差す展開（能力上位）`);
+  // ━━ ③ 展開別パターン：荒れスコア×展開確率で点数を動的に決める ━━
+  // 固定配分ではなく「このレースがどれだけ荒れやすいか」「その展開が実際に起きやすいか」を掛け合わせる
+  const totalPtEarly=race.total||10;
+  const raceChaos=race.chaosScore||0;
+
+  // 荒れレースほど余剰点数が多い（点数全体のうち展開別に回せる比率）
+  // 鉄板(chaos<2): 展開別にはあまり回さない / 波乱以上: 積極的に回す
+  const expandBudgetRatio = raceChaos>=12?0.35 : raceChaos>=8?0.28 : raceChaos>=5?0.20 : raceChaos>=2?0.12 : 0.06;
+  const expandBudget = Math.max(0, Math.round(totalPtEarly*expandBudgetRatio));
+
+  // 差し・まくり・まくり差しそれぞれの「実現確率」に応じて予算を配分
+  const sashiW=Math.max(0.05, sc.sashi||0);
+  const makiW=Math.max(0.02, sc.maki||0);
+  const makiSashiW=Math.max(0.02, sc.makiSashi||0);
+  const wSum=sashiW+makiW+makiSashiW;
+  const sashiDepth=Math.max(1, Math.round(expandBudget*(sashiW/wSum)));
+  const makiDepth =Math.max(sc.maki>=0.10?1:0, Math.round(expandBudget*(makiW/wSum)));
+  const msDepth   =Math.max(sc.makiSashi>=0.08?1:0, Math.round(expandBudget*(makiSashiW/wSum)));
+
+  // 差し（2・3コースが差す展開・1号艇は2着か3着に必ず絡める）
+  const sashiBoats=sashiCand.filter(e=>e.no!==axis).slice(0,sashiDepth);
+  sashiBoats.forEach((sb,i)=>{
+    if(i===0){
+      addPick(sb.no, in1no!==sb.no?in1no:b1, b1, '差し','anti',
+        `【差し】${sb.no}号艇${sb.name}が差す展開・1号艇は${in1no!==sb.no?'2着に残る':'3着圏内'}（能力上位・実現確率${Math.round(sc.sashi*100)}%）`);
+    } else {
+      addPick(sb.no, b1, in1no, '差し','anti',
+        `【差し】${sb.no}号艇${sb.name}差し・1号艇3着残り（展開${i+1}）`);
+    }
+  });
+
+  // まくり（4〜6コースがまくる展開・1号艇は2着に残す形を基本）
+  if(makiDepth>0){
+    const makiBoats=makiCand.filter(e=>e.no!==axis).slice(0,makiDepth);
+    makiBoats.forEach((mb,i)=>{
+      if(i===0){
+        addPick(mb.no, in1no, b1, 'まくり','anti',
+          `【まくり】${mb.no}号艇${mb.name}がまくる展開・1号艇は2着に残す（M${mb.motorRate.toFixed(0)}%・実現確率${Math.round(sc.maki*100)}%）`);
+      } else {
+        addPick(mb.no, b1, in1no, 'まくり','anti',
+          `【まくり】${mb.no}号艇まくり・1号艇3着残り（展開${i+1}）`);
+      }
+    });
   }
-  // まくり（4〜6コースがまくる展開）
-  const makiBoat=makiCand.find(e=>e.no!==axis);
-  if(makiBoat&&(sc.maki>=0.15||outFavorable)){
-    addPick(makiBoat.no, in1no, b1, 'まくり','anti',
-      `【まくり】${makiBoat.no}号艇${makiBoat.name}がまくる展開（M${makiBoat.motorRate.toFixed(0)}%）`);
-  }
-  // まくり差し（外がまくり差しで内が残る）
-  const makiSashiBoat=makiSashiCand.find(e=>e.no!==axis&&e.no!==makiBoat?.no);
-  if(makiSashiBoat&&sc.makiSashi>=0.08){
-    addPick(makiSashiBoat.no, in1no, b1, 'まくり差し','hole',
-      `【まくり差し】${makiSashiBoat.no}号艇${makiSashiBoat.name}が展示・ST良好で台頭`);
+
+  // まくり差し（外がまくり差しで内が残る・1号艇は必ず絡める）
+  if(msDepth>0){
+    const msBoats=makiSashiCand.filter(e=>e.no!==axis).slice(0,msDepth);
+    msBoats.forEach((mb,i)=>{
+      if(i===0){
+        addPick(mb.no, in1no, b1, 'まくり差し','hole',
+          `【まくり差し】${mb.no}号艇${mb.name}が展示・ST良好で台頭・1号艇は残る`);
+      } else {
+        addPick(mb.no, b1, in1no, 'まくり差し','hole',
+          `【まくり差し】${mb.no}号艇の台頭パターン（展開${i+1}）`);
+      }
+    });
   }
 
   // ━━ ④ 穴（高配当狙い）：今節好調・モーター好調のアウト艇が1着 ━━
+  // 穴も基本は1号艇を絡める。ただし「大穴」だけは1号艇なしの純粋な波乱目を許可
   if(canHole){
     const holePool=[...makiSashiCands];
     holeCandEntries.forEach(e=>{
@@ -2397,13 +2444,14 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
     const ms=holePool.find(e=>e.no!==axis&&e.no!==axis2);
     if(ms){
       addPick(ms.no, in1no, b1, '穴','hole',
-        `【穴・高配当】${ms.no}号艇${ms.name}が1着なら高配当（今節/M/展示好調）`);
+        `【穴・高配当】${ms.no}号艇${ms.name}が1着なら高配当・1号艇は残る（今節/M/展示好調）`);
       addPick(ms.no, b1, in1no, '穴','hole',
-        `【穴・高配当】${ms.no}号艇軸の別展開`);
+        `【穴・高配当】${ms.no}号艇軸の別展開・1号艇3着`);
     }
     const bigHole=holeCandEntries.find(e=>e.no>=4&&e.no!==ms?.no&&e.no!==axis);
     if(bigHole){
-      addPick(bigHole.no, b1, axis, '穴','hole', `【大穴】${bigHole.no}号艇まくりで一発逆転`);
+      // 大穴のみ1号艇なしを許可（真の波乱パターンとして1点だけ）
+      addPick(bigHole.no, b1, b2||axis, '穴','hole', `【大穴・波乱】${bigHole.no}号艇まくりで1号艇も飛ぶ一発逆転`, true);
     }
   }
 
@@ -2415,24 +2463,33 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   let finalResult=[...mainPicks,...antiPicks,...holePicks];
   const finalSeen=new Set(finalResult.map(p=>p.boats.join('-')));
 
-  // 指定点数に満たない場合は期待値順で補完
+  // 指定点数に満たない場合は期待値順で補完（1号艇絡みを優先、最後の1枠のみ自由枠）
   if(finalResult.length<totalPt){
     const all=[];
+    const allFree=[];
     for(const a of sorted.map(e=>e.no)){
       for(const b of sorted.map(e=>e.no)){
         if(a===b) continue;
         for(const c of sorted.map(e=>e.no)){
           if(a===c||b===c) continue;
           const key=`${a}-${b}-${c}`;
-          if(!finalSeen.has(key)){
-            all.push({boats:[a,b,c],label:'対抗',cat:'anti',note:'期待値補完'});
-          }
+          if(finalSeen.has(key)) continue;
+          const hasIn1=a===1||b===1||c===1;
+          const pick={boats:[a,b,c],label:hasIn1?'対抗':'穴',cat:hasIn1?'anti':'hole',note:hasIn1?'期待値補完':'期待値補完（波乱枠）'};
+          if(hasIn1) all.push(pick); else allFree.push(pick);
         }
       }
     }
     all.sort((x,y)=>triProb(...y.boats,placeP,entries)-triProb(...x.boats,placeP,entries));
+    allFree.sort((x,y)=>triProb(...y.boats,placeP,entries)-triProb(...x.boats,placeP,entries));
     for(const p of all){
       if(finalResult.length>=totalPt) break;
+      const key=p.boats.join('-');
+      if(!finalSeen.has(key)){finalSeen.add(key);finalResult.push(p);}
+    }
+    // 最後の1枠だけ、1号艇なしの自由枠（真の波乱パターン）を許可
+    if(finalResult.length<totalPt&&allFree.length>0){
+      const p=allFree[0];
       const key=p.boats.join('-');
       if(!finalSeen.has(key)){finalSeen.add(key);finalResult.push(p);}
     }
@@ -2447,6 +2504,82 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
 }
 
 // ── プロ思考の予想理由生成 ────────────────────────────
+// ── ストーリー風の予想理由生成（プロ予想屋スタイル）────────
+// スリットの攻防・1マークの攻防を情景として描写する
+function buildStoryReason(boats, label, placeP, expand, etRankMap, withET, vc, wx){
+  const [a,b,c]=boats;
+  const ea=APP.entries.find(e=>e.no===a);
+  const eb=APP.entries.find(e=>e.no===b);
+  const ec=APP.entries.find(e=>e.no===c);
+  if(!ea) return '';
+  const sc=expand.sc;
+  const spd=parseFloat(wx.windSpeed)||0;
+  const dir=wx.windDir||'';
+  const wave=parseFloat(wx.wave)||0;
+  const isHead=['北','北東','北西'].some(d=>dir.includes(d));
+  const isTail=['南','南東','南西'].some(d=>dir.includes(d));
+  const etRa=etRankMap[a]||0;
+  const stA=ea.exhibitST>0?ea.exhibitST:ea.avgST;
+
+  const parts=[];
+
+  // ── 導入：スタート隊形の情景 ──
+  if(a===1){
+    if(stA>0&&stA<=0.14){
+      parts.push(`スリットで${a}号艇${ea.name}がしっかりと踏み込み、迷いのないインの構えを見せる。`);
+    } else {
+      parts.push(`${a}号艇${ea.name}は無理をせず自分のタイミングでスタートを合わせにいく。`);
+    }
+    if(isHead&&spd>=5){
+      parts.push(`向かい風${spd}mが正面から吹き付ける中、それでもインコースの短さを活かして一マークへ突き進む。`);
+    } else {
+      parts.push(`第一マークまでの距離的優位はそのままに、後続を突き放しにかかる形だ。`);
+    }
+  } else if(a<=3){
+    parts.push(`${a}号艇${ea.name}は前づけからスリットで踏み込み、内の艇の隙をうかがう。`);
+    if(stA>0&&stA<=0.15) parts.push(`ST${stA.toFixed(2)}のタイミングは鋭く、一マークで内側に切れ込む余地を作れそうだ。`);
+    parts.push(`差しが決まれば、そのまま外を封じる形でターンを制することになる。`);
+  } else {
+    parts.push(`アウトの${a}号艇${ea.name}は助走から全速で踏み込み、外から一気に差を詰める構えを見せる。`);
+    if(sc.maki>=0.20) parts.push(`まくりが決まりやすい流れの中、勢いをつけたまま内側を飲み込みにかかる。`);
+    else parts.push(`一マークでの巻き返しに賭ける、勝負師らしいポジション取りだ。`);
+  }
+
+  // ── モーター・展示の裏付け ──
+  if(ea.motorRate>=54) parts.push(`このモーターは節を通じて仕事をしており、直線の伸びは他艇を圧倒している。`);
+  else if(ea.motorRate<35) parts.push(`モーターの数字こそ振るわないが、それでも展開次第では十分に食い込める位置につけている。`);
+  if(etRa===1&&withET.length>=3) parts.push(`展示タイムは全体の中でも頭一つ抜けており、当日の仕上がりの良さがうかがえる。`);
+
+  // ── 今節成績の裏付け ──
+  if(ea.sessionResults.length>=2){
+    const avg=ea.sessionResults.reduce((s,x)=>s+x,0)/ea.sessionResults.length;
+    const recent=ea.sessionResults.slice(-2);
+    if(avg<=2.0) parts.push(`今節${recent.join('-')}と好調を維持しており、勢いに乗った状態でこのレースに入ってきた。`);
+    else if(avg>=4.0) parts.push(`今節は苦しい走りが続くが、一戦一戦調整を重ねてきた分、ここで巻き返す可能性も残る。`);
+  }
+
+  // ── 1マークの攻防（2・3着の描写）──
+  if(eb){
+    if(b===1&&a!==1){
+      parts.push(`一方、内で我慢していた1号艇${eb.name}は、簡単には引き下がらない。一マークの内側をぴたりと締め、${a}号艇の攻めをしのぎながら2着に食い込む。`);
+    } else if(eb.no<=3){
+      parts.push(`2着争いでは${b}号艇${eb.name}が内側から差を詰め、${a}号艇の直後にぴたりとつける形になりそうだ。`);
+    } else {
+      parts.push(`${b}号艇${eb.name}は展開の乱れを見逃さず、外から2着争いに割って入ってくる。`);
+    }
+  }
+  if(ec){
+    parts.push(`３着争いは${c}号艇${ec.name}を含めた混戦模様。最後の直線で際どい着差になるだろう。`);
+  }
+
+  // ── 水面・風の一言 ──
+  if(wave>=12) parts.push(`波高${wave}cmとやや荒れた水面が、ターンの精度に影響を与えそうだ。`);
+
+  return parts.join('');
+}
+
+
+// ── 予想理由生成（箇条書き・従来版、補足情報として併用）──────
 function buildPickReason(boats, placeP, expand, etRankMap, withET, vc, wx, W){
   const [a,b,c]=boats;
   const ea=APP.entries.find(e=>e.no===a);
@@ -2632,7 +2765,8 @@ function runPred(){
     const conf=prob>=0.12?'A':prob>=0.06?'B':prob>=0.03?'C':prob>=0.01?'D':'E';
     const confC={'A':'var(--teal)','B':'var(--blue)','C':'var(--gold)','D':'var(--orange)','E':'var(--red)'}[conf];
     const reasons=buildPickReason(p.boats,placeP,expand,etRankMap,withET,vc,wx,W);
-    return {...p,type:'三連単',prob,odds,ev,conf,confC,reasons};
+    const story=buildStoryReason(p.boats,p.label,placeP,expand,etRankMap,withET,vc,wx);
+    return {...p,type:'三連単',prob,odds,ev,conf,confC,reasons,story};
   });
 
   // カテゴリ優先＋同カテゴリ内は期待値順
@@ -2695,6 +2829,7 @@ function renderPredV5(picks,raceClass,expand,chaosScore,chaosLines,placeP,W){
     const lc=labelC[p.label]||'var(--text2)';
     const evc=p.ev>=2.0?'var(--teal)':p.ev>=1.0?'var(--blue)':'var(--text3)';
     const reasonHtml=(p.reasons||[]).map(r=>`<span>・${r}</span>`).join('<br>');
+    const storyHtml=p.story?`<div style="font-size:.74rem;color:var(--text1,#ddd);line-height:1.75;padding:6px 8px;background:var(--bg3);border-radius:4px;margin-bottom:5px;font-style:italic;">${p.story}</div>`:'';
     html+=`<div class="pred-card ${rankCls[i]||''}">
       <span class="pred-rank ${i===0?'r1':i===1?'r2':i===2?'r3':''}">${rkMk(i)}</span>
       <div class="pred-boats">${boats}</div>
@@ -2708,7 +2843,7 @@ function renderPredV5(picks,raceClass,expand,chaosScore,chaosLines,placeP,W){
         <div class="pred-ev" style="color:${evc};font-weight:700;">EV ${p.ev}</div>
         <div class="cbar"><div class="cfill" style="width:${Math.min(100,p.prob*300)}%;"></div></div>
       </div>
-      <div class="pred-reason">${reasonHtml}</div>
+      <div class="pred-reason">${storyHtml}${reasonHtml}</div>
     </div>`;
   });
   html+=`</div>

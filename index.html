@@ -2149,32 +2149,40 @@ function classifyRace(chaosScore){
   else if(chaosScore>=2){  type='やや堅い';color='var(--blue)';  }
   else{                    type='鉄板';   color='var(--teal)';   }
 
-  // ━━ 7カテゴリへの最低保証付き配分 ━━
-  // 本線・押さえは常に確保。差し・まくり・まくり差し・穴・抜きは
-  // 荒れ度に応じて「出すかどうか」と「何点出すか」を決める
+  // ━━ 7カテゴリへの単調増加型・比率固定配分 ━━
+  // 「点数を増やすほど、すべてのカテゴリが単調に増える（減ることはない）」
+  // 荒れ度(chaosLv)に応じて「比率」だけを変え、その比率をtotal点にそのままスケールする
   const chaosLv = chaosScore>=12?4 : chaosScore>=8?3 : chaosScore>=5?2 : chaosScore>=2?1 : 0;
 
-  // 各カテゴリの「欲しい点数」を荒れレベルで決定（点数が足りなければ後で圧縮）
-  const want={
-    main:      chaosLv<=1?Math.ceil(total*0.35):Math.ceil(total*0.25),
-    osae:      Math.ceil(total*0.15),
-    sashi:     total>=8?(chaosLv>=1?2:1):1,
-    maki:      total>=8?(chaosLv>=2?2:1):(chaosLv>=1?1:0),
-    makisashi: total>=10?(chaosLv>=2?2:1):(chaosLv>=3?1:0),
-    ana:       chaosLv>=3?Math.ceil(total*0.20):chaosLv>=1?Math.ceil(total*0.10):(total>=10?1:0),
-    nuki:      total>=8?1:0, // 発動条件を満たした場合のみ実際には使われる
+  // 荒れ度ごとの基準比率（合計1.0になるよう設計）
+  const ratioTable = {
+    0: {main:0.50, osae:0.20, sashi:0.10, maki:0.05, makisashi:0.03, ana:0.07, nuki:0.05}, // 鉄板
+    1: {main:0.40, osae:0.18, sashi:0.12, maki:0.08, makisashi:0.05, ana:0.10, nuki:0.07}, // やや堅い
+    2: {main:0.32, osae:0.16, sashi:0.13, maki:0.11, makisashi:0.08, ana:0.13, nuki:0.07}, // 普通
+    3: {main:0.24, osae:0.14, sashi:0.13, maki:0.13, makisashi:0.11, ana:0.18, nuki:0.07}, // 波乱
+    4: {main:0.18, osae:0.12, sashi:0.12, maki:0.14, makisashi:0.13, ana:0.24, nuki:0.07}, // 超波乱
   };
+  const ratio = ratioTable[chaosLv];
 
-  // 合計がtotalを超える場合は比率を保ったまま縮小
+  // 各カテゴリの点数 = 比率 × 総点数（切り捨て）。最低保証: main≥1
+  const rawWant={};
+  Object.keys(ratio).forEach(k=>{ rawWant[k]=total*ratio[k]; });
+  const want={};
+  Object.keys(ratio).forEach(k=>{ want[k]=Math.floor(rawWant[k]); });
+  want.main=Math.max(1, want.main);
+
+  // 端数（切り捨てで余った分）は「小数点以下の端数が大きいカテゴリ」から優先的に1点ずつ配る
+  // これにより点数を1つ増やした時、どのカテゴリも減ることがない（単調性を保証）
   let sum=Object.values(want).reduce((a,b)=>a+b,0);
-  const cats=Object.keys(want);
-  if(sum>total){
-    const scale=total/sum;
-    cats.forEach(k=>{ want[k]=Math.max(k==='main'?1:0, Math.floor(want[k]*scale)); });
-    sum=Object.values(want).reduce((a,b)=>a+b,0);
+  const remainders=Object.keys(ratio)
+    .map(k=>({k, frac:rawWant[k]-Math.floor(rawWant[k])}))
+    .sort((a,b)=>b.frac-a.frac||['main','osae','sashi','maki','makisashi','ana','nuki'].indexOf(a.k)-['main','osae','sashi','maki','makisashi','ana','nuki'].indexOf(b.k));
+  let idx=0;
+  while(sum<total){
+    want[remainders[idx%remainders.length].k]++;
+    sum++;
+    idx++;
   }
-  // 端数はmainに寄せる
-  if(sum<total) want.main+=(total-sum);
 
   return {
     type, color, total, chaosScore,
@@ -2189,14 +2197,15 @@ function classifyRace(chaosScore){
 function findMakiSashiCandidates(entries, etRankMap, withET){
   return entries.filter(e=>{
     if(e.no<3) return false;
-    // ST条件：展示ST優先、なければ平均STで判定（基準を実用的な0.17に緩和）
-    const stFast=(e.exhibitST>0&&e.exhibitST<=0.16)||(e.exhibitST<=0&&e.avgST>0&&e.avgST<=0.17);
-    // 伸び足：展示タイムが入力されている場合のみ判定（未入力ならfalse扱いでOK、他条件で拾う）
-    const nobiFoot=withET.length>0&&etRankMap[e.no]&&etRankMap[e.no]<=Math.ceil(withET.length/2);
-    const motorOk=e.motorRate>=46;
+    // ST条件：展示ST優先、なければ平均STで判定（基準をさらに実用的に緩和）
+    const stFast=(e.exhibitST>0&&e.exhibitST<=0.17)||(e.exhibitST<=0&&e.avgST>0&&e.avgST<=0.19);
+    // 伸び足：展示タイムが入力されている場合のみ判定
+    const nobiFoot=withET.length>0&&etRankMap[e.no]&&etRankMap[e.no]<=Math.ceil(withET.length*0.6);
+    const motorOk=e.motorRate>=40; // 46→40に緩和（僅差で弾かれるケースを救済）
     const sessionOk=e.sessionResults.length===0||
-      e.sessionResults.slice(-2).filter(x=>x<=3).length>=1;
-    return (stFast||nobiFoot)&&motorOk&&sessionOk;
+      e.sessionResults.slice(-2).filter(x=>x<=3).length>=1||
+      e.sessionResults.slice(0,1).filter(x=>x<=2).length>=1; // 初日好走も評価
+    return (stFast||nobiFoot||motorOk)&&sessionOk;
   });
 }
 
@@ -2305,16 +2314,97 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   const axis2=sorted.find(e=>e.no!==axis)?.no;
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // 【プロ実戦知識】決まり手判定（軸がどう1着を取るか）
+  // 決まり手ごとに「誰が引き波にハメられ、誰が空いたスペースに飛び込むか」
+  // という物理的な位置関係で2・3着候補を強制補正する
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  let kimarite='通常', kimariteNote='';
+  const in1no0=in1e?.no||1;
+
+  if(axis===1){
+    // イン逃げ：パターンA(差し追走 1-2-3型) か パターンB(外が攻めて内が残る 1-3/1-4型)
+    const attackerExists=outerEliteStrong.length>=1||outFavorable;
+    if(attackerExists){
+      kimarite='逃げB'; kimariteNote='外が攻めて1号艇が弾き返す。2着は攻めた艇、3着はイン粘りか展開艇';
+    } else {
+      kimarite='逃げA'; kimariteNote='2号艇が内を差し追走する王道展開。2着は2号艇最有力';
+    }
+  } else if(axis===2){
+    kimarite='2号差し'; kimariteNote='1号艇のターンが漏れた内側を2号艇が差す。2着はほぼ1号艇残り';
+  } else if(axis===3){
+    // 3号艇：まくりかまくり差しかを展示・ST・展開確率で判定
+    if(sc.makiSashi>=sc.maki){
+      kimarite='3号まくり差し'; kimariteNote='3号艇が2号艇を叩き1号艇の内を差す。2号艇は引き波で沈み5,6号艇が浮上';
+    } else {
+      kimarite='3号まくり'; kimariteNote='3号艇が内2艇を上から叩く。4,5号艇が連動して2着浮上、6号艇が3着';
+    }
+  } else if(axis===4){
+    // 4号艇：差し(2番差し)かカドまくりかを判定
+    if(sc.maki>=sc.sashi){
+      kimarite='4号カドまくり'; kimariteNote='4号艇が内3艇を飲み込む強襲。5号艇がマーク差しで2着ほぼ確定、6号艇が3着連動';
+    } else {
+      kimarite='4号差し'; kimariteNote='3号艇のまくりが流れた隙を4号艇が差す。2着は残る1号艇か攻めた3号艇、3着は5号艇';
+    }
+  } else if(axis===5){
+    kimarite='5号まくり差し'; kimariteNote='4号艇の攻めで全艇が外に流れた隙を5号艇が最速で抜く大穴展開。2着は4号艇、3着は6号艇';
+  } else if(axis===6){
+    kimarite='6号一発'; kimariteNote='大外一気の展開。5号艇が連動しやすく、内勢は壊滅的';
+  }
+
+  // 決まり手別の2・3着補正フラグ（該当艇のスコアを補正する重み倍率）
+  const kimariteBoost={}; // {艇番: 倍率}
+  entries.forEach(e=>{ kimariteBoost[e.no]=1.0; });
+
+  if(kimarite==='逃げA'){
+    kimariteBoost[2]=(kimariteBoost[2]||1)*1.5; // 2号艇差し追走を最優遇
+  } else if(kimarite==='逃げB'){
+    // 実際に攻めた艇（能力上位のアウト艇）を優遇
+    const attacker=sorted.find(e=>e.no>=3&&e.no!==axis);
+    if(attacker) kimariteBoost[attacker.no]=(kimariteBoost[attacker.no]||1)*1.4;
+    kimariteBoost[2]=(kimariteBoost[2]||1)*1.1;
+  } else if(kimarite==='2号差し'){
+    kimariteBoost[1]=(kimariteBoost[1]||1)*1.6; // 1号艇がほぼ確実に2着残り
+    kimariteBoost[3]=(kimariteBoost[3]||1)*1.2;
+    kimariteBoost[4]=(kimariteBoost[4]||1)*1.1;
+  } else if(kimarite==='3号まくり差し'){
+    kimariteBoost[2]=0.3; // 2号艇は引き波で大幅に評価を下げる
+    kimariteBoost[1]=(kimariteBoost[1]||1)*0.8;
+    kimariteBoost[5]=(kimariteBoost[5]||1)*1.5;
+    kimariteBoost[6]=(kimariteBoost[6]||1)*1.6; // 6号艇3着が高確率
+  } else if(kimarite==='3号まくり'){
+    kimariteBoost[1]=0.5; kimariteBoost[2]=0.4; // イン2艇は引き波で沈む
+    kimariteBoost[4]=(kimariteBoost[4]||1)*1.5;
+    kimariteBoost[5]=(kimariteBoost[5]||1)*1.4;
+    kimariteBoost[6]=(kimariteBoost[6]||1)*1.2;
+  } else if(kimarite==='4号差し'){
+    kimariteBoost[2]=0.4; // 3号艇と競り合い共倒れしやすい2号艇を下げる
+    kimariteBoost[1]=(kimariteBoost[1]||1)*1.3;
+    kimariteBoost[3]=(kimariteBoost[3]||1)*1.2;
+    kimariteBoost[5]=(kimariteBoost[5]||1)*1.5; // 5号艇3着を必ず拾う
+  } else if(kimarite==='4号カドまくり'){
+    kimariteBoost[1]=0.4; kimariteBoost[2]=0.4; kimariteBoost[3]=0.4; // イン3艇壊滅
+    kimariteBoost[5]=(kimariteBoost[5]||1)*1.7; // 5号艇マーク差しがほぼ確定
+    kimariteBoost[6]=(kimariteBoost[6]||1)*1.4;
+  } else if(kimarite==='5号まくり差し'){
+    kimariteBoost[4]=(kimariteBoost[4]||1)*1.6; // 4号艇が2着最有力
+    kimariteBoost[6]=(kimariteBoost[6]||1)*1.5; // 6号艇が3着連動
+    kimariteBoost[1]=0.5; kimariteBoost[2]=0.5; kimariteBoost[3]=0.6;
+  } else if(kimarite==='6号一発'){
+    kimariteBoost[5]=(kimariteBoost[5]||1)*1.5;
+    kimariteBoost[1]=0.5; kimariteBoost[2]=0.5;
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // 残り展開テンプレート方式
   // 「1着がどう決まるか」だけでなく「その後どう残るか」を
   // 展開パターンごとに考えて2・3着を決める
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  // 2着・3着候補（axis以外でp2/p3上位）
+  // 2着・3着候補（axis以外でp2/p3上位、決まり手補正を掛け合わせる）
   const p2list=[...entries].filter(e=>e.no!==axis)
-    .sort((a,b)=>(placeP[b.no]?.p2||0)-(placeP[a.no]?.p2||0));
+    .sort((a,b)=>((placeP[b.no]?.p2||0)*(kimariteBoost[b.no]||1))-((placeP[a.no]?.p2||0)*(kimariteBoost[a.no]||1)));
   const p3list=[...entries].filter(e=>e.no!==axis)
-    .sort((a,b)=>(placeP[b.no]?.p3||0)-(placeP[a.no]?.p3||0));
+    .sort((a,b)=>((placeP[b.no]?.p3||0)*(kimariteBoost[b.no]||1))-((placeP[a.no]?.p3||0)*(kimariteBoost[a.no]||1)));
 
   const b1=p2list[0]?.no, b2=p2list[1]?.no, b3=p2list[2]?.no, b4=p2list[3]?.no;
   const c1=p3list[0]?.no, c2=p3list[1]?.no, c3=p3list[2]?.no, c4=p3list[3]?.no;
@@ -2329,11 +2419,19 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   const seen=new Set();
   const result=[];
 
-  // 1号艇を必ず絡める制約（プロ方針③）: 大穴パターンのみ例外を許可
+  // 1号艇の優位性を判定：1着確率が他艇と僅差なら「全艇拮抗」とみなし制約を緩和
+  // （今回の鳴門12Rのように全艇A1級で実力が拮抗している節を想定）
+  const in1P1=placeP[1]?.p1||0;
+  const otherTopP1=Math.max(...entries.filter(e=>e.no!==1).map(e=>placeP[e.no]?.p1||0));
+  const in1Dominance = in1P1>0 ? (in1P1-otherTopP1)/in1P1 : 0;
+  const in1IsWeak = in1Dominance<0.10; // 1号艇の優位性が10%未満なら「拮抗節」と判定
+
+  // 1号艇を必ず絡める制約（プロ方針③）: 大穴パターンと拮抗節では緩和
   function addPick(a,b,c,label,cat,note,allowNoIn1){
     if(!a||!b||!c) return false;
     if(a===b||b===c||a===c) return false;
-    if(!allowNoIn1&&a!==1&&b!==1&&c!==1) return false; // 1号艇が絡まない目は原則却下
+    // 1号艇が絡まない目は原則却下。ただし「拮抗節」または明示許可の場合は通す
+    if(!allowNoIn1&&!in1IsWeak&&a!==1&&b!==1&&c!==1) return false;
     const key=`${a}-${b}-${c}`;
     if(seen.has(key)) return false;
     seen.add(key);
@@ -2477,6 +2575,21 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
     }
   }
 
+  // ━━ 拮抗節専用：1号艇の優位性が薄い場合、アウト艇同士の組み合わせも積極生成 ━━
+  // 全艇A1級のような激戦節では「1号艇抜き」の決着が普通に起こりうるため
+  if(in1IsWeak&&(race.ana||0)>0){
+    const nonIn1Sorted=sorted.filter(e=>e.no!==1);
+    for(let i=0;i<Math.min(3,nonIn1Sorted.length);i++){
+      const a1=nonIn1Sorted[i]?.no;
+      const rest=nonIn1Sorted.filter(e=>e.no!==a1);
+      const a2=rest[0]?.no, a3=rest[1]?.no;
+      if(a1&&a2&&a3){
+        addPick(a1, a2, a3, '穴','ana',
+          `【拮抗節・波乱】1号艇の優位性が薄く(差${Math.round(in1Dominance*100)}%)、${a1}号艇が抜け出す展開`, true);
+      }
+    }
+  }
+
   // ━━ 7カテゴリそれぞれ独立して欲しい点数だけ確保 ━━
   const totalPt=race.total||10;
   const mainPicks     =result.filter(p=>p.cat==='main').slice(0,race.main||0);
@@ -2534,7 +2647,11 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   }
 
   // axisReasonsをAPPに保存（予想理由で使用）
-  APP._axisReason=axisReason+`【確信度:${axisConfidence}】`;
+  APP._axisReason=axisReason+`【確信度:${axisConfidence}】【決まり手:${kimarite}】`;
+  APP._kimarite=kimarite;
+  APP._kimariteNote=kimariteNote;
+  APP._kimarite=kimarite;
+  APP._kimariteNote=kimariteNote;
   APP._axisConfidence=axisConfidence;
   APP._axis=axis;
 
@@ -2766,6 +2883,11 @@ function runPred(){
   if(outerGood.length>=2){ chaosScore+=2; chaosLines.push(`アウト有力複数`); }
   else if(outerGood.length===1){ chaosScore+=1; }
 
+  // 全艇が同級（A1級揃い等）で実力拮抗の場合も荒れ要因として加点
+  const gradeSet=new Set(entries.map(e=>e.grade));
+  const allSameHighGrade=gradeSet.size===1&&(entries[0]?.grade==='A1');
+  if(allSameHighGrade){ chaosScore+=3; chaosLines.push(`全艇A1級で実力拮抗`); }
+
   const raceClass=classifyRace(chaosScore);
   APP.chaoticLevel=chaosScore>=8?'高':chaosScore>=3?'中':'低';
   APP._raceClass=raceClass;
@@ -2852,6 +2974,8 @@ function renderPredV5(picks,raceClass,expand,chaosScore,chaosLines,placeP,W){
     ${adjBadge}<br>
     展開: ${scenarioBar}<br>
     1着確率: ${probBars}<br>
+    <span style="color:var(--gold);font-weight:700;">🎯 決まり手判定: ${APP._kimarite||'―'}</span>　
+    <span style="font-size:.72rem;color:var(--text2);">${APP._kimariteNote||''}</span><br>
     荒れ要因(${chaosScore}点): ${chaosHtml}<br>
     構成: 本線${raceClass.main}点・押さえ${raceClass.osae}点・差し${raceClass.sashi}点・まくり${raceClass.maki}点・まくり差し${raceClass.makisashi}点・穴${raceClass.ana}点・抜き${raceClass.nuki}点
   </div>`;

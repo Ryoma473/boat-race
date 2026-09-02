@@ -2318,81 +2318,58 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   // 決まり手ごとに「誰が引き波にハメられ、誰が空いたスペースに飛び込むか」
   // という物理的な位置関係で2・3着候補を強制補正する
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  let kimarite='通常', kimariteNote='';
-  const in1no0=in1e?.no||1;
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // 【プロ実戦知識】決まり手判定を任意の軸(axisArg)に対して実行する関数
+  // 軸候補ごとにシナリオを独立生成するため、ここで関数化する
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  function getKimariteForAxis(axisArg){
+    let km='通常', kmNote='';
+    if(axisArg===1){
+      const attackerExists=outerEliteStrong.length>=1||outFavorable;
+      if(attackerExists){ km='逃げB'; kmNote='外が攻めて1号艇が弾き返す。2着は攻めた艇、3着はイン粘りか展開艇'; }
+      else { km='逃げA'; kmNote='2号艇が内を差し追走する王道展開。2着は2号艇最有力'; }
+    } else if(axisArg===2){
+      km='2号差し'; kmNote='1号艇のターンが漏れた内側を2号艇が差す。2着はほぼ1号艇残り';
+    } else if(axisArg===3){
+      if(sc.makiSashi>=sc.maki){ km='3号まくり差し'; kmNote='3号艇が2号艇を叩き1号艇の内を差す。2号艇は引き波で沈み5,6号艇が浮上'; }
+      else { km='3号まくり'; kmNote='3号艇が内2艇を上から叩く。4,5号艇が連動して2着浮上、6号艇が3着'; }
+    } else if(axisArg===4){
+      if(sc.maki>=sc.sashi){ km='4号カドまくり'; kmNote='4号艇が内3艇を飲み込む強襲。5号艇がマーク差しで2着ほぼ確定、6号艇が3着連動'; }
+      else { km='4号差し'; kmNote='3号艇のまくりが流れた隙を4号艇が差す。2着は残る1号艇か攻めた3号艇、3着は5号艇'; }
+    } else if(axisArg===5){
+      km='5号まくり差し'; kmNote='4号艇の攻めで全艇が外に流れた隙を5号艇が最速で抜く大穴展開。2着は4号艇、3着は6号艇';
+    } else if(axisArg===6){
+      km='6号一発'; kmNote='大外一気の展開。5号艇が連動しやすく、内勢は壊滅的';
+    }
 
-  if(axis===1){
-    // イン逃げ：パターンA(差し追走 1-2-3型) か パターンB(外が攻めて内が残る 1-3/1-4型)
-    const attackerExists=outerEliteStrong.length>=1||outFavorable;
-    if(attackerExists){
-      kimarite='逃げB'; kimariteNote='外が攻めて1号艇が弾き返す。2着は攻めた艇、3着はイン粘りか展開艇';
-    } else {
-      kimarite='逃げA'; kimariteNote='2号艇が内を差し追走する王道展開。2着は2号艇最有力';
+    const boost={};
+    entries.forEach(e=>{ boost[e.no]=1.0; });
+    if(km==='逃げA'){
+      boost[2]=(boost[2]||1)*1.5;
+    } else if(km==='逃げB'){
+      const attacker=sorted.find(e=>e.no>=3&&e.no!==axisArg);
+      if(attacker) boost[attacker.no]=(boost[attacker.no]||1)*1.4;
+      boost[2]=(boost[2]||1)*1.1;
+    } else if(km==='2号差し'){
+      boost[1]=(boost[1]||1)*1.6; boost[3]=(boost[3]||1)*1.2; boost[4]=(boost[4]||1)*1.1;
+    } else if(km==='3号まくり差し'){
+      boost[2]=0.3; boost[1]=(boost[1]||1)*0.8; boost[5]=(boost[5]||1)*1.5; boost[6]=(boost[6]||1)*1.6;
+    } else if(km==='3号まくり'){
+      boost[1]=0.5; boost[2]=0.4; boost[4]=(boost[4]||1)*1.5; boost[5]=(boost[5]||1)*1.4; boost[6]=(boost[6]||1)*1.2;
+    } else if(km==='4号差し'){
+      boost[2]=0.4; boost[1]=(boost[1]||1)*1.3; boost[3]=(boost[3]||1)*1.2; boost[5]=(boost[5]||1)*1.5;
+    } else if(km==='4号カドまくり'){
+      boost[1]=0.4; boost[2]=0.4; boost[3]=0.4; boost[5]=(boost[5]||1)*1.7; boost[6]=(boost[6]||1)*1.4;
+    } else if(km==='5号まくり差し'){
+      boost[4]=(boost[4]||1)*1.6; boost[6]=(boost[6]||1)*1.5; boost[1]=0.5; boost[2]=0.5; boost[3]=0.6;
+    } else if(km==='6号一発'){
+      boost[5]=(boost[5]||1)*1.5; boost[1]=0.5; boost[2]=0.5;
     }
-  } else if(axis===2){
-    kimarite='2号差し'; kimariteNote='1号艇のターンが漏れた内側を2号艇が差す。2着はほぼ1号艇残り';
-  } else if(axis===3){
-    // 3号艇：まくりかまくり差しかを展示・ST・展開確率で判定
-    if(sc.makiSashi>=sc.maki){
-      kimarite='3号まくり差し'; kimariteNote='3号艇が2号艇を叩き1号艇の内を差す。2号艇は引き波で沈み5,6号艇が浮上';
-    } else {
-      kimarite='3号まくり'; kimariteNote='3号艇が内2艇を上から叩く。4,5号艇が連動して2着浮上、6号艇が3着';
-    }
-  } else if(axis===4){
-    // 4号艇：差し(2番差し)かカドまくりかを判定
-    if(sc.maki>=sc.sashi){
-      kimarite='4号カドまくり'; kimariteNote='4号艇が内3艇を飲み込む強襲。5号艇がマーク差しで2着ほぼ確定、6号艇が3着連動';
-    } else {
-      kimarite='4号差し'; kimariteNote='3号艇のまくりが流れた隙を4号艇が差す。2着は残る1号艇か攻めた3号艇、3着は5号艇';
-    }
-  } else if(axis===5){
-    kimarite='5号まくり差し'; kimariteNote='4号艇の攻めで全艇が外に流れた隙を5号艇が最速で抜く大穴展開。2着は4号艇、3着は6号艇';
-  } else if(axis===6){
-    kimarite='6号一発'; kimariteNote='大外一気の展開。5号艇が連動しやすく、内勢は壊滅的';
+    return {kimarite:km, note:kmNote, boost};
   }
 
-  // 決まり手別の2・3着補正フラグ（該当艇のスコアを補正する重み倍率）
-  const kimariteBoost={}; // {艇番: 倍率}
-  entries.forEach(e=>{ kimariteBoost[e.no]=1.0; });
-
-  if(kimarite==='逃げA'){
-    kimariteBoost[2]=(kimariteBoost[2]||1)*1.5; // 2号艇差し追走を最優遇
-  } else if(kimarite==='逃げB'){
-    // 実際に攻めた艇（能力上位のアウト艇）を優遇
-    const attacker=sorted.find(e=>e.no>=3&&e.no!==axis);
-    if(attacker) kimariteBoost[attacker.no]=(kimariteBoost[attacker.no]||1)*1.4;
-    kimariteBoost[2]=(kimariteBoost[2]||1)*1.1;
-  } else if(kimarite==='2号差し'){
-    kimariteBoost[1]=(kimariteBoost[1]||1)*1.6; // 1号艇がほぼ確実に2着残り
-    kimariteBoost[3]=(kimariteBoost[3]||1)*1.2;
-    kimariteBoost[4]=(kimariteBoost[4]||1)*1.1;
-  } else if(kimarite==='3号まくり差し'){
-    kimariteBoost[2]=0.3; // 2号艇は引き波で大幅に評価を下げる
-    kimariteBoost[1]=(kimariteBoost[1]||1)*0.8;
-    kimariteBoost[5]=(kimariteBoost[5]||1)*1.5;
-    kimariteBoost[6]=(kimariteBoost[6]||1)*1.6; // 6号艇3着が高確率
-  } else if(kimarite==='3号まくり'){
-    kimariteBoost[1]=0.5; kimariteBoost[2]=0.4; // イン2艇は引き波で沈む
-    kimariteBoost[4]=(kimariteBoost[4]||1)*1.5;
-    kimariteBoost[5]=(kimariteBoost[5]||1)*1.4;
-    kimariteBoost[6]=(kimariteBoost[6]||1)*1.2;
-  } else if(kimarite==='4号差し'){
-    kimariteBoost[2]=0.4; // 3号艇と競り合い共倒れしやすい2号艇を下げる
-    kimariteBoost[1]=(kimariteBoost[1]||1)*1.3;
-    kimariteBoost[3]=(kimariteBoost[3]||1)*1.2;
-    kimariteBoost[5]=(kimariteBoost[5]||1)*1.5; // 5号艇3着を必ず拾う
-  } else if(kimarite==='4号カドまくり'){
-    kimariteBoost[1]=0.4; kimariteBoost[2]=0.4; kimariteBoost[3]=0.4; // イン3艇壊滅
-    kimariteBoost[5]=(kimariteBoost[5]||1)*1.7; // 5号艇マーク差しがほぼ確定
-    kimariteBoost[6]=(kimariteBoost[6]||1)*1.4;
-  } else if(kimarite==='5号まくり差し'){
-    kimariteBoost[4]=(kimariteBoost[4]||1)*1.6; // 4号艇が2着最有力
-    kimariteBoost[6]=(kimariteBoost[6]||1)*1.5; // 6号艇が3着連動
-    kimariteBoost[1]=0.5; kimariteBoost[2]=0.5; kimariteBoost[3]=0.6;
-  } else if(kimarite==='6号一発'){
-    kimariteBoost[5]=(kimariteBoost[5]||1)*1.5;
-    kimariteBoost[1]=0.5; kimariteBoost[2]=0.5;
-  }
+  // 軸(メイン)の決まり手を取得（従来通りの単一軸フロー用）
+  const {kimarite, note:kimariteNote, boost:kimariteBoost}=getKimariteForAxis(axis);
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // 残り展開テンプレート方式
@@ -2840,6 +2817,78 @@ function generatePrediction(){
   },200);
 }
 
+// ── シナリオ別出力：1着候補を最大3艇まで絞り込み、それぞれ独立した展開シナリオを生成 ──
+function buildScenarios(placeP, expand, entries, etRankMap, withET, vc, wx){
+  const sorted=[...entries].sort((a,b)=>(placeP[b.no]?.p1||0)-(placeP[a.no]?.p1||0));
+  const sc=expand.sc;
+  const spd=parseFloat(wx.windSpeed)||0;
+  const dir=wx.windDir||'';
+  const isHead=['北','北東','北西'].some(d=>dir.includes(d));
+  const outFavorable=(isHead&&spd>=5)||(parseFloat(wx.wave)||0)>=15;
+  const outerEliteStrong=entries.filter(e=>e.no>=3&&(e.grade==='A1'||e.grade==='A2')&&
+    (e.sessionResults.length?e.sessionResults.reduce((a,b)=>a+b,0)/e.sessionResults.length<=3.0:e.motorRate>=50));
+
+  // 1着確率の上位3艇のうち、確率差が僅かなものだけシナリオ候補にする（極端に低い艇は除外）
+  const top1p=placeP[sorted[0]?.no]?.p1||0;
+  const candidates=sorted.filter((e,i)=>i<3&&(i===0||((placeP[e.no]?.p1||0)/top1p)>=0.35));
+
+  const kimariteLabels={
+    '逃げA':'イン逃げ（差し追走）','逃げB':'イン逃げ（強襲を弾き返す）',
+    '2号差し':'2コース差し','3号まくり差し':'3コースまくり差し','3号まくり':'3コースまくり',
+    '4号差し':'4コース差し（2番差し）','4号カドまくり':'4コースカドまくり',
+    '5号まくり差し':'5コースまくり差し（大穴）','6号一発':'6コース一発大外',
+  };
+
+  return candidates.map(cand=>{
+    const axisNo=cand.no;
+    // 決まり手判定（簡易版：本体のgetKimariteForAxisと同じルール）
+    let km='通常';
+    if(axisNo===1) km=(outerEliteStrong.length>=1||outFavorable)?'逃げB':'逃げA';
+    else if(axisNo===2) km='2号差し';
+    else if(axisNo===3) km=(sc.makiSashi>=sc.maki)?'3号まくり差し':'3号まくり';
+    else if(axisNo===4) km=(sc.maki>=sc.sashi)?'4号カドまくり':'4号差し';
+    else if(axisNo===5) km='5号まくり差し';
+    else if(axisNo===6) km='6号一発';
+
+    const boost={};
+    entries.forEach(e=>{ boost[e.no]=1.0; });
+    if(km==='逃げA') boost[2]*=1.5;
+    else if(km==='逃げB'){ const a=sorted.find(e=>e.no>=3&&e.no!==axisNo); if(a) boost[a.no]*=1.4; boost[2]*=1.1; }
+    else if(km==='2号差し'){ boost[1]*=1.6; boost[3]*=1.2; boost[4]*=1.1; }
+    else if(km==='3号まくり差し'){ boost[2]=0.3; boost[1]*=0.8; boost[5]*=1.5; boost[6]*=1.6; }
+    else if(km==='3号まくり'){ boost[1]=0.5; boost[2]=0.4; boost[4]*=1.5; boost[5]*=1.4; boost[6]*=1.2; }
+    else if(km==='4号差し'){ boost[2]=0.4; boost[1]*=1.3; boost[3]*=1.2; boost[5]*=1.5; }
+    else if(km==='4号カドまくり'){ boost[1]=0.4; boost[2]=0.4; boost[3]=0.4; boost[5]*=1.7; boost[6]*=1.4; }
+    else if(km==='5号まくり差し'){ boost[4]*=1.6; boost[6]*=1.5; boost[1]=0.5; boost[2]=0.5; boost[3]=0.6; }
+    else if(km==='6号一発'){ boost[5]*=1.5; boost[1]=0.5; boost[2]=0.5; }
+
+    const p2s=[...entries].filter(e=>e.no!==axisNo)
+      .sort((a,b)=>((placeP[b.no]?.p2||0)*boost[b.no])-((placeP[a.no]?.p2||0)*boost[a.no]));
+    const p3s=[...entries].filter(e=>e.no!==axisNo)
+      .sort((a,b)=>((placeP[b.no]?.p3||0)*boost[b.no])-((placeP[a.no]?.p3||0)*boost[a.no]));
+
+    const b1=p2s[0]?.no, b2=p2s[1]?.no;
+    const c1=p3s[0]?.no, c2=p3s[1]?.no;
+
+    // このシナリオの代表買い目3点
+    const picks=[];
+    const seen=new Set();
+    function add(a,b,c){
+      if(!a||!b||!c||a===b||b===c||a===c) return;
+      const key=`${a}-${b}-${c}`;
+      if(seen.has(key)) return;
+      seen.add(key); picks.push([a,b,c]);
+    }
+    add(axisNo,b1,c1); add(axisNo,b1,c2); add(axisNo,b2,c1);
+
+    return {
+      axis:axisNo, kimarite:km, kimariteLabel:kimariteLabels[km]||km,
+      p1pct:Math.round((placeP[axisNo]?.p1||0)*100),
+      picks, b1,b2,c1,c2,
+    };
+  });
+}
+
 function runPred(){
   const v=APP.selectedVenue;
   const vc=VENUE_CHARS[v?v.code:'01']||{in1:54,sashi:47,maki:45,windCorr:-0.05,night:false};
@@ -2913,8 +2962,11 @@ function runPred(){
   }).sort((a,b)=>(placeP[b.no]?.p1||0)-(placeP[a.no]?.p1||0));
   const canHole=chaosScore>=3&&(makiSashiCands.length>0||holeCandEntries.length>0);
 
+
   // ── STEP7: 展開から買い目生成 ─────────────────────
   const rawPicks=buildPicksFromExpand(placeP,expand,entries,raceClass,makiSashiCands,canHole,etRankMap);
+  const scenarios=buildScenarios(placeP,expand,entries,etRankMap,withET,vc,wx);
+  APP._scenarios=scenarios;
 
   // ── STEP5: 期待値計算・最終リスト ────────────────
   const result=rawPicks.map(p=>{
@@ -2979,6 +3031,27 @@ function renderPredV5(picks,raceClass,expand,chaosScore,chaosLines,placeP,W){
     荒れ要因(${chaosScore}点): ${chaosHtml}<br>
     構成: 本線${raceClass.main}点・押さえ${raceClass.osae}点・差し${raceClass.sashi}点・まくり${raceClass.maki}点・まくり差し${raceClass.makisashi}点・穴${raceClass.ana}点・抜き${raceClass.nuki}点
   </div>`;
+
+  // ━━ シナリオ別出力：1着候補ごとの独立展開シナリオ ━━
+  const scenarios=APP._scenarios||[];
+  if(scenarios.length>0){
+    html+=`<div class="card" style="margin-bottom:.75rem;">
+      <div class="card-title">📋 シナリオ別展開（1着候補ごとの決まり手予測）</div>
+      <div style="display:flex;flex-direction:column;gap:8px;">`;
+    scenarios.forEach((sn,i)=>{
+      const scLabel=['A','B','C'][i]||`${i+1}`;
+      const picksHtml=sn.picks.map(p=>
+        `<span class="bn bn${p[0]}" style="width:18px;height:18px;font-size:.6rem;">${p[0]}</span>-<span class="bn bn${p[1]}" style="width:18px;height:18px;font-size:.6rem;">${p[1]}</span>-<span class="bn bn${p[2]}" style="width:18px;height:18px;font-size:.6rem;">${p[2]}</span>`
+      ).join('　');
+      html+=`<div style="padding:8px 10px;background:var(--bg3);border-radius:6px;border-left:3px solid ${i===0?'var(--teal)':i===1?'var(--gold)':'var(--orange)'};">
+        <div style="font-size:.72rem;font-weight:700;color:${i===0?'var(--teal)':i===1?'var(--gold)':'var(--orange)'};">
+          シナリオ${scLabel}：${sn.axis}号艇軸「${sn.kimariteLabel}」（1着確率${sn.p1pct}%）
+        </div>
+        <div style="margin-top:4px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">${picksHtml}</div>
+      </div>`;
+    });
+    html+=`</div></div>`;
+  }
 
   const labelC={本線:'var(--teal)',押さえ:'var(--blue)',対抗:'var(--gold)',差し:'var(--gold)',まくり:'var(--orange)','まくり差し':'var(--orange)',抜き:'var(--blue)',穴:'var(--red)'};
   const rankCls=['rank1','rank2','rank3','','','','','','',''];

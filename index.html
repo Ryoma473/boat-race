@@ -2229,9 +2229,23 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   // 1着確率でソート（placeP使用）
   const sorted=[...entries].sort((a,b)=>(placeP[b.no]?.p1||0)-(placeP[a.no]?.p1||0));
 
-  // ━━ 穴候補：アウト艇で今節好調・モーター好調・展示上位の艇 ━━
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // ━━ 1着候補艇の絞り込み ━━
+  // 「1〜6号艇のうち、実際に1着を取りうる艇はどれか」を先に決める。
+  // ここで外れた艇は、差し/まくり/まくり差し/穴のどのカテゴリにも
+  // 「1着候補」としては登場しない（無理な的中不能買い目を防ぐ）。
+  // 2着・3着の相手としては引き続きどの艇も使われる（絞り込みは1着候補のみ対象）。
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  const topP1ForWinner=Math.max(...entries.map(e=>placeP[e.no]?.p1||0));
+  const winnerThreshold=Math.max(topP1ForWinner*0.30, 0.06);
+  const winnerCandidates=entries
+    .filter(e=>(placeP[e.no]?.p1||0)>=winnerThreshold)
+    .map(e=>e.no);
+
+  // ━━ 穴候補：アウト艇で今節好調・モーター好調・展示上位の艇（1着候補に残った艇のみ） ━━
   const holeCandEntries=[...entries].filter(e=>{
     if(e.no<3) return false;
+    if(!winnerCandidates.includes(e.no)) return false;
     const sessGood=e.sessionResults.length>=2&&
       e.sessionResults.reduce((a,b)=>a+b,0)/e.sessionResults.length<=2.5;
     const motorGood=e.motorRate>=50;
@@ -2312,6 +2326,10 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   }
 
   const axis2=sorted.find(e=>e.no!==axis)?.no;
+
+  // 軸として選ばれた艇は、絞り込みの結果から漏れていても必ず1着候補として扱う
+  if(!winnerCandidates.includes(axis)) winnerCandidates.push(axis);
+  if(axis2&&!winnerCandidates.includes(axis2)) winnerCandidates.push(axis2);
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // 【プロ実戦知識】決まり手判定（軸がどう1着を取るか）
@@ -2427,14 +2445,14 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   const in1no=in1e?.no||1;
 
-  // 差し候補（2・3コース、能力・展示が良い順）
-  const sashiCand=[...entries].filter(e=>e.no===2||e.no===3)
+  // 差し候補（2・3コース、1着候補に残った艇のみ／能力・展示が良い順）
+  const sashiCand=[...entries].filter(e=>(e.no===2||e.no===3)&&winnerCandidates.includes(e.no))
     .sort((a,b)=>(placeP[b.no]?.p1||0)-(placeP[a.no]?.p1||0));
-  // まくり候補（4〜6コース、能力・展示が良い順）
-  const makiCand=[...entries].filter(e=>e.no>=4)
+  // まくり候補（4〜6コース、1着候補に残った艇のみ／能力・展示が良い順）
+  const makiCand=[...entries].filter(e=>e.no>=4&&winnerCandidates.includes(e.no))
     .sort((a,b)=>(placeP[b.no]?.p1||0)-(placeP[a.no]?.p1||0));
-  // まくり差し候補（findMakiSashiCandidatesの結果を優先、なければmakiCandで代用）
-  const makiSashiCand=makiSashiCands.length?makiSashiCands:makiCand;
+  // まくり差し候補（findMakiSashiCandidatesの結果を優先、なければmakiCandで代用／1着候補のみ）
+  const makiSashiCand=(makiSashiCands.length?makiSashiCands:makiCand).filter(e=>winnerCandidates.includes(e.no));
 
   // ━━ ① 本線：的中率重視（最も濃厚な1本の展開）━━
   if(axis===1){
@@ -2474,7 +2492,7 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   const axisSessVariance=axisEntry?.sessionResults?.length>=3
     ?Math.max(...axisEntry.sessionResults)-Math.min(...axisEntry.sessionResults):0;
   const axisSTVal=axisEntry?.exhibitST>0?axisEntry.exhibitST:(axisEntry?.avgST||0.18);
-  const nukiCandidate=[...entries].find(e=>e.no!==axis&&
+  const nukiCandidate=[...entries].find(e=>e.no!==axis&&winnerCandidates.includes(e.no)&&
     (e.exhibitST>0?e.exhibitST:e.avgST)<=0.15&&(e.motorRate>=45));
   const nukiConditionMet = (axisSessVariance>=4||axisSTVal>=0.19) && nukiCandidate;
   if(nukiConditionMet){
@@ -2522,9 +2540,9 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
     }
   });
 
-  // ━━ 穴（高配当狙い）：今節好調・モーター好調のアウト艇が1着 ━━
+  // ━━ 穴（高配当狙い）：今節好調・モーター好調のアウト艇が1着（1着候補に残った艇のみ）━━
   if(canHole){
-    const holePool=[...makiSashiCands];
+    const holePool=makiSashiCands.filter(e=>winnerCandidates.includes(e.no));
     holeCandEntries.forEach(e=>{
       if(!holePool.find(h=>h.no===e.no)) holePool.push(e);
     });
@@ -2546,7 +2564,7 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   // 全艇A1級のような激戦節では「1号艇抜き」の決着が普通に起こりうるため
   // （採用するかどうかは後段のスコアリングに委ねるため、ここでは候補として積むだけ）
   if(in1IsWeak){
-    const nonIn1Sorted=sorted.filter(e=>e.no!==1);
+    const nonIn1Sorted=sorted.filter(e=>e.no!==1&&winnerCandidates.includes(e.no));
     for(let i=0;i<Math.min(3,nonIn1Sorted.length);i++){
       const a1=nonIn1Sorted[i]?.no;
       const rest=nonIn1Sorted.filter(e=>e.no!==a1);

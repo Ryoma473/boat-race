@@ -2483,13 +2483,11 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
       `【抜き】${axis}号艇のターンが乱れた隙を${nukiCandidate.no}号艇がそのまま通過・${axis}号艇は踏みとどまり2着`);
   }
 
-  // ━━ 展開別パターン：荒れスコア×展開確率で「欲しい点数」に沿って生成 ━━
-  const sashiDepth=Math.max(1, race.sashi||1);
-  const makiDepth =race.maki||0;
-  const msDepth   =race.makisashi||0;
+  // ━━ 展開別パターン：点数上限を決め打ちせず、実現しうる候補は一通り生成する ━━
+  // （どれを採用するかは後段の動的スコアリングで決める）
 
   // 差し（2・3コースが差す展開・1号艇は2着か3着に必ず絡める）
-  const sashiBoats=sashiCand.filter(e=>e.no!==axis).slice(0,sashiDepth);
+  const sashiBoats=sashiCand.filter(e=>e.no!==axis);
   sashiBoats.forEach((sb,i)=>{
     if(i===0){
       addPick(sb.no, in1no!==sb.no?in1no:b1, b1, '差し','sashi',
@@ -2501,35 +2499,31 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   });
 
   // まくり（4〜6コースがまくる展開・1号艇は2着に残す形を基本）
-  if(makiDepth>0){
-    const makiBoats=makiCand.filter(e=>e.no!==axis).slice(0,makiDepth);
-    makiBoats.forEach((mb,i)=>{
-      if(i===0){
-        addPick(mb.no, in1no, b1, 'まくり','maki',
-          `【まくり】${mb.no}号艇${mb.name}がまくる展開・1号艇は2着に残す（M${mb.motorRate.toFixed(0)}%・実現確率${Math.round((sc.maki||0)*100)}%）`);
-      } else {
-        addPick(mb.no, b1, in1no, 'まくり','maki',
-          `【まくり】${mb.no}号艇まくり・1号艇3着残り（展開${i+1}）`);
-      }
-    });
-  }
+  const makiBoats=makiCand.filter(e=>e.no!==axis);
+  makiBoats.forEach((mb,i)=>{
+    if(i===0){
+      addPick(mb.no, in1no, b1, 'まくり','maki',
+        `【まくり】${mb.no}号艇${mb.name}がまくる展開・1号艇は2着に残す（M${mb.motorRate.toFixed(0)}%・実現確率${Math.round((sc.maki||0)*100)}%）`);
+    } else {
+      addPick(mb.no, b1, in1no, 'まくり','maki',
+        `【まくり】${mb.no}号艇まくり・1号艇3着残り（展開${i+1}）`);
+    }
+  });
 
   // まくり差し（外がまくり差しで内が残る・1号艇は必ず絡める）
-  if(msDepth>0){
-    const msBoats=makiSashiCand.filter(e=>e.no!==axis).slice(0,msDepth);
-    msBoats.forEach((mb,i)=>{
-      if(i===0){
-        addPick(mb.no, in1no, b1, 'まくり差し','makisashi',
-          `【まくり差し】${mb.no}号艇${mb.name}が展示・ST良好で台頭・1号艇は残る`);
-      } else {
-        addPick(mb.no, b1, in1no, 'まくり差し','makisashi',
-          `【まくり差し】${mb.no}号艇の台頭パターン（展開${i+1}）`);
-      }
-    });
-  }
+  const msBoats=makiSashiCand.filter(e=>e.no!==axis);
+  msBoats.forEach((mb,i)=>{
+    if(i===0){
+      addPick(mb.no, in1no, b1, 'まくり差し','makisashi',
+        `【まくり差し】${mb.no}号艇${mb.name}が展示・ST良好で台頭・1号艇は残る`);
+    } else {
+      addPick(mb.no, b1, in1no, 'まくり差し','makisashi',
+        `【まくり差し】${mb.no}号艇の台頭パターン（展開${i+1}）`);
+    }
+  });
 
   // ━━ 穴（高配当狙い）：今節好調・モーター好調のアウト艇が1着 ━━
-  if(canHole&&(race.ana||0)>0){
+  if(canHole){
     const holePool=[...makiSashiCands];
     holeCandEntries.forEach(e=>{
       if(!holePool.find(h=>h.no===e.no)) holePool.push(e);
@@ -2538,23 +2532,20 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
     if(ms){
       addPick(ms.no, in1no, b1, '穴','ana',
         `【穴・高配当】${ms.no}号艇${ms.name}が1着なら高配当・1号艇は残る（今節/M/展示好調）`);
-      if((race.ana||0)>=2){
-        addPick(ms.no, b1, in1no, '穴','ana',
-          `【穴・高配当】${ms.no}号艇軸の別展開・1号艇3着`);
-      }
+      addPick(ms.no, b1, in1no, '穴','ana',
+        `【穴・高配当】${ms.no}号艇軸の別展開・1号艇3着`);
     }
-    if((race.ana||0)>=2){
-      const bigHole=holeCandEntries.find(e=>e.no>=4&&e.no!==ms?.no&&e.no!==axis);
-      if(bigHole){
-        // 大穴のみ1号艇なしを許可（真の波乱パターンとして1点だけ）
-        addPick(bigHole.no, b1, b2||axis, '穴','ana', `【大穴・波乱】${bigHole.no}号艇まくりで1号艇も飛ぶ一発逆転`, true);
-      }
+    const bigHole=holeCandEntries.find(e=>e.no>=4&&e.no!==ms?.no&&e.no!==axis);
+    if(bigHole){
+      // 大穴のみ1号艇なしを許可（真の波乱パターンとして候補に加える。採用するかはスコア次第）
+      addPick(bigHole.no, b1, b2||axis, '穴','ana', `【大穴・波乱】${bigHole.no}号艇まくりで1号艇も飛ぶ一発逆転`, true);
     }
   }
 
   // ━━ 拮抗節専用：1号艇の優位性が薄い場合、アウト艇同士の組み合わせも積極生成 ━━
   // 全艇A1級のような激戦節では「1号艇抜き」の決着が普通に起こりうるため
-  if(in1IsWeak&&(race.ana||0)>0){
+  // （採用するかどうかは後段のスコアリングに委ねるため、ここでは候補として積むだけ）
+  if(in1IsWeak){
     const nonIn1Sorted=sorted.filter(e=>e.no!==1);
     for(let i=0;i<Math.min(3,nonIn1Sorted.length);i++){
       const a1=nonIn1Sorted[i]?.no;
@@ -2567,16 +2558,52 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
     }
   }
 
-  // ━━ 7カテゴリそれぞれ独立して欲しい点数だけ確保 ━━
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // ━━ 動的カテゴリ配分 ━━
+  // カテゴリごとの点数を固定テーブルで先に決めるのではなく、
+  // 「そのシナリオが実際にどれだけ起こりそうか」を表す実測シグナルで
+  // 各候補に強さスコアをつけ、全カテゴリを横断してランキングする。
+  //   ・main/osae … 軸の1着確率(placeP)×軸の確信度(axisConfidence)
+  //   ・sashi/maki/makisashi … 展開シミュレーションの実現確率(expand.sc)
+  //   ・ana … 混戦度(chaosScore)と1着候補の頭数（拮抗しているほど穴の価値が上がる）
+  //   ・nuki … 生成条件(nukiConditionMet)を満たした場合のみ候補が存在するため定数
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  const axisConfMult = axisConfidence==='高'?1.25 : axisConfidence==='低'?0.75 : 1.0;
+  const mainAxisP1 = placeP[axis]?.p1||0.01;
+  const topP1 = Math.max(...entries.map(e=>placeP[e.no]?.p1||0));
+  const contenderCount = entries.filter(e=>(placeP[e.no]?.p1||0)>=topP1*0.80).length;
+  // 混戦度と1着候補の頭数から「穴」を狙う価値を算出（頭数が多い＝本命を絞れない＝穴の価値が上がる）
+  const anaStrength = 0.25 + Math.min(0.5,(race.chaosScore||0)/16) + (contenderCount-1)*0.12;
+
+  function categoryStrength(cat){
+    switch(cat){
+      case 'main':
+      case 'osae':      return mainAxisP1 * axisConfMult * 3.2;
+      case 'sashi':     return (sc.sashi||0) * 2.6;
+      case 'maki':      return (sc.maki||0) * 2.6;
+      case 'makisashi': return (sc.makiSashi||0) * 2.6;
+      case 'ana':       return anaStrength;
+      case 'nuki':      return 0.55;
+      default:          return 0.5;
+    }
+  }
+
   const totalPt=race.total||10;
-  const mainPicks     =result.filter(p=>p.cat==='main').slice(0,race.main||0);
-  const osaePicks     =result.filter(p=>p.cat==='osae').slice(0,race.osae||0);
-  const sashiPicks    =result.filter(p=>p.cat==='sashi').slice(0,race.sashi||0);
-  const makiPicks     =result.filter(p=>p.cat==='maki').slice(0,race.maki||0);
-  const makisashiPicks=result.filter(p=>p.cat==='makisashi').slice(0,race.makisashi||0);
-  const anaPicks      =result.filter(p=>p.cat==='ana').slice(0,race.ana||0);
-  const nukiPicks     =result.filter(p=>p.cat==='nuki').slice(0,race.nuki||0);
-  let finalResult=[...mainPicks,...osaePicks,...sashiPicks,...makiPicks,...makisashiPicks,...anaPicks,...nukiPicks];
+  const scored=result.map(p=>({
+    ...p,
+    score: triProb(p.boats[0],p.boats[1],p.boats[2],placeP,entries) * categoryStrength(p.cat)
+  }));
+  scored.sort((x,y)=>y.score-x.score);
+
+  // 軸の本線が1点も入らない事態は避ける（軸を立てた意味を守る最低保証）
+  let finalResult=[];
+  const mainTop=scored.find(p=>p.cat==='main');
+  if(mainTop) finalResult.push(mainTop);
+  for(const p of scored){
+    if(finalResult.length>=totalPt) break;
+    if(p===mainTop) continue;
+    finalResult.push(p);
+  }
   const finalSeen=new Set(finalResult.map(p=>p.boats.join('-')));
 
   // 指定点数に満たない場合は期待値順で補完（1号艇絡みを優先、最後の1枠のみ自由枠）
@@ -2596,8 +2623,8 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
         }
       }
     }
-    all.sort((x,y)=>triProb(...y.boats,placeP,entries)-triProb(...x.boats,placeP,entries));
-    allFree.sort((x,y)=>triProb(...y.boats,placeP,entries)-triProb(...x.boats,placeP,entries));
+    all.sort((x,y)=>triProb(y.boats[0],y.boats[1],y.boats[2],placeP,entries)-triProb(x.boats[0],x.boats[1],x.boats[2],placeP,entries));
+    allFree.sort((x,y)=>triProb(y.boats[0],y.boats[1],y.boats[2],placeP,entries)-triProb(x.boats[0],x.boats[1],x.boats[2],placeP,entries));
     for(const p of all){
       if(finalResult.length>=totalPt) break;
       const key=p.boats.join('-');
@@ -2610,29 +2637,18 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
       if(!finalSeen.has(key)){finalSeen.add(key);finalResult.push(p);}
     }
   }
-  // 超過している場合は優先度の低いカテゴリ（穴→まくり差し→まくり→差し→抜き）から間引く
-  if(finalResult.length>totalPt){
-    const trimOrder=['ana','makisashi','maki','sashi','nuki','osae','main'];
-    for(const cat of trimOrder){
-      while(finalResult.length>totalPt){
-        const idx=[...finalResult].reverse().findIndex(p=>p.cat===cat);
-        if(idx===-1) break;
-        finalResult.splice(finalResult.length-1-idx,1);
-      }
-      if(finalResult.length<=totalPt) break;
-    }
-  }
+  // 超過分はすでにscore順に並んでいるため、末尾を切り詰めるだけでよい
+  // （固定カテゴリからの間引きではなく、スコアが低い候補が自然に落ちる）
+  finalResult=finalResult.slice(0,totalPt);
 
   // axisReasonsをAPPに保存（予想理由で使用）
   APP._axisReason=axisReason+`【確信度:${axisConfidence}】【決まり手:${kimarite}】`;
   APP._kimarite=kimarite;
   APP._kimariteNote=kimariteNote;
-  APP._kimarite=kimarite;
-  APP._kimariteNote=kimariteNote;
   APP._axisConfidence=axisConfidence;
   APP._axis=axis;
 
-  return finalResult.slice(0,totalPt);
+  return finalResult;
 }
 
 // ── プロ思考の予想理由生成 ────────────────────────────
@@ -3020,6 +3036,15 @@ function renderPredV5(picks,raceClass,expand,chaosScore,chaosLines,placeP,W){
   // 重み表示
   const adjBadge=W.adjustCount>0?`<span style="font-size:.62rem;padding:1px 5px;border-radius:3px;background:var(--teal)20;color:var(--teal);">自動調整${W.adjustCount}回済</span>`:'';
 
+  // 実際に採用された買い目のカテゴリ内訳（点数は固定配分ではなく、動的スコアリングの結果）
+  const catLabel={main:'本線',osae:'押さえ',sashi:'差し',maki:'まくり',makisashi:'まくり差し',ana:'穴',nuki:'抜き'};
+  const catCount={main:0,osae:0,sashi:0,maki:0,makisashi:0,ana:0,nuki:0};
+  picks.forEach(p=>{ if(catCount[p.cat]!==undefined) catCount[p.cat]++; });
+  const compositionText=Object.keys(catLabel)
+    .filter(k=>catCount[k]>0)
+    .map(k=>`${catLabel[k]}${catCount[k]}点`)
+    .join('・');
+
   let html=`<div class="alert alert-ok" style="margin-bottom:.75rem;line-height:1.95;font-size:.78rem;">
     <b>🎯 ${v.name} ${APP.selectedRace}R ― 三連単 ${picks.length}点</b>
     <span style="margin-left:8px;padding:2px 8px;border-radius:4px;background:${raceClass.color}25;color:${raceClass.color};font-weight:700;">${raceClass.type}</span>
@@ -3029,7 +3054,7 @@ function renderPredV5(picks,raceClass,expand,chaosScore,chaosLines,placeP,W){
     <span style="color:var(--gold);font-weight:700;">🎯 決まり手判定: ${APP._kimarite||'―'}</span>　
     <span style="font-size:.72rem;color:var(--text2);">${APP._kimariteNote||''}</span><br>
     荒れ要因(${chaosScore}点): ${chaosHtml}<br>
-    構成: 本線${raceClass.main}点・押さえ${raceClass.osae}点・差し${raceClass.sashi}点・まくり${raceClass.maki}点・まくり差し${raceClass.makisashi}点・穴${raceClass.ana}点・抜き${raceClass.nuki}点
+    構成: ${compositionText}<span style="font-size:.68rem;color:var(--text3);">（各シナリオの実現確率・軸の確信度から動的に配分）</span>
   </div>`;
 
   // ━━ シナリオ別出力：1着候補ごとの独立展開シナリオ ━━

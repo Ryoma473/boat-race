@@ -2434,6 +2434,26 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
     return true;
   }
 
+  // ━━ 2着・3着スワップ候補生成 ━━
+  // 「1着が確定した後、2着候補上位×3着候補上位を機械的に組み合わせる」ことで、
+  // 手書きの1〜2パターンだけでは拾えない「2着・3着の入れ替わり」を候補に含める。
+  // （winner自身を除いた残り艇のp2/p3を、winnerごとに算出し直す＝axis基準の使い回しをしない）
+  // 採用するかどうかは既存の動的スコアリング（的中確率ベース）に委ねる。
+  function build23Variants(winner, count){
+    const rest=entries.filter(e=>e.no!==winner);
+    const p2sorted=[...rest].sort((a,b)=>(placeP[b.no]?.p2||0)-(placeP[a.no]?.p2||0));
+    const combos=[];
+    for(let i=0;i<Math.min(count,p2sorted.length);i++){
+      const second=p2sorted[i].no;
+      const rest3=rest.filter(e=>e.no!==second);
+      const p3sorted=[...rest3].sort((a,b)=>(placeP[b.no]?.p3||0)-(placeP[a.no]?.p3||0));
+      for(let j=0;j<Math.min(count,p3sorted.length);j++){
+        combos.push([winner, second, p3sorted[j].no]);
+      }
+    }
+    return combos;
+  }
+
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // 展開パターン判定：どの「残り方」が濃厚か
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -2486,6 +2506,10 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   [c1,c2,c3,c4].forEach(cx=>{
     if(cx&&cx!==axis&&cx!==b1) addPick(axis, b1, cx, '押さえ','osae', `${axis}→${b1}の本線筋・3着に${cx}が入る保険`);
   });
+  // 軸のスワップ候補（2着・3着上位3艇同士の入れ替わりを網羅し、手書きパターンの見落としを防ぐ）
+  build23Variants(axis,3).forEach(([a,b2c,c2c])=>{
+    addPick(a,b2c,c2c,'押さえ','osae',`${axis}軸・2着${b2c}/3着${c2c}のスワップ候補`);
+  });
 
   // ━━ 抜き：軸艇が不安定な時の保険（前艇のミスをすぐ後ろの艇が突く）━━
   const axisEntry=entries.find(e=>e.no===axis);
@@ -2514,6 +2538,10 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
       addPick(sb.no, b1, in1no, '差し','sashi',
         `【差し】${sb.no}号艇${sb.name}差し・1号艇3着残り（展開${i+1}）`);
     }
+    // 2着・3着のスワップ候補（sb.no基準でp2/p3を算出し直し、決め打ちで拾えない入れ替わりを補う）
+    build23Variants(sb.no,2).forEach(([a,b2c,c2c])=>{
+      addPick(a,b2c,c2c,'差し','sashi',`【差し】${sb.no}号艇1着・2着${b2c}/3着${c2c}のスワップ候補`);
+    });
   });
 
   // まくり（4〜6コースがまくる展開・1号艇は2着に残す形を基本）
@@ -2526,6 +2554,9 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
       addPick(mb.no, b1, in1no, 'まくり','maki',
         `【まくり】${mb.no}号艇まくり・1号艇3着残り（展開${i+1}）`);
     }
+    build23Variants(mb.no,2).forEach(([a,b2c,c2c])=>{
+      addPick(a,b2c,c2c,'まくり','maki',`【まくり】${mb.no}号艇1着・2着${b2c}/3着${c2c}のスワップ候補`);
+    });
   });
 
   // まくり差し（外がまくり差しで内が残る・1号艇は必ず絡める）
@@ -2538,6 +2569,9 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
       addPick(mb.no, b1, in1no, 'まくり差し','makisashi',
         `【まくり差し】${mb.no}号艇の台頭パターン（展開${i+1}）`);
     }
+    build23Variants(mb.no,2).forEach(([a,b2c,c2c])=>{
+      addPick(a,b2c,c2c,'まくり差し','makisashi',`【まくり差し】${mb.no}号艇1着・2着${b2c}/3着${c2c}のスワップ候補`);
+    });
   });
 
   // ━━ 穴（高配当狙い）：今節好調・モーター好調のアウト艇が1着（1着候補に残った艇のみ）━━
@@ -2552,11 +2586,20 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
         `【穴・高配当】${ms.no}号艇${ms.name}が1着なら高配当・1号艇は残る（今節/M/展示好調）`);
       addPick(ms.no, b1, in1no, '穴','ana',
         `【穴・高配当】${ms.no}号艇軸の別展開・1号艇3着`);
+      // 2着・3着のスワップ候補（ms.no基準）
+      build23Variants(ms.no,2).forEach(([a,b2c,c2c])=>{
+        const hasIn1=a===1||b2c===1||c2c===1;
+        addPick(a,b2c,c2c,'穴','ana',`【穴・高配当】${ms.no}号艇1着・2着${b2c}/3着${c2c}のスワップ候補`,!hasIn1);
+      });
     }
     const bigHole=holeCandEntries.find(e=>e.no>=4&&e.no!==ms?.no&&e.no!==axis);
     if(bigHole){
       // 大穴のみ1号艇なしを許可（真の波乱パターンとして候補に加える。採用するかはスコア次第）
       addPick(bigHole.no, b1, b2||axis, '穴','ana', `【大穴・波乱】${bigHole.no}号艇まくりで1号艇も飛ぶ一発逆転`, true);
+      // 大穴も2着・3着のスワップ候補を生成（1号艇なしでも許可＝真の波乱パターンの網羅）
+      build23Variants(bigHole.no,2).forEach(([a,b2c,c2c])=>{
+        addPick(a,b2c,c2c,'穴','ana',`【大穴・波乱】${bigHole.no}号艇1着・2着${b2c}/3着${c2c}のスワップ候補`,true);
+      });
     }
   }
 
@@ -2572,6 +2615,12 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
       if(a1&&a2&&a3){
         addPick(a1, a2, a3, '穴','ana',
           `【拮抗節・波乱】1号艇の優位性が薄く(差${Math.round(in1Dominance*100)}%)、${a1}号艇が抜け出す展開`, true);
+      }
+      if(a1){
+        // ここもスワップ候補を生成（1号艇抜きの決着パターンを広く拾う）
+        build23Variants(a1,2).forEach(([a,b2c,c2c])=>{
+          addPick(a,b2c,c2c,'穴','ana',`【拮抗節・波乱】${a1}号艇1着・2着${b2c}/3着${c2c}のスワップ候補`,true);
+        });
       }
     }
   }

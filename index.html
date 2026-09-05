@@ -402,32 +402,36 @@ const VENUES=[
 ];
 const CLASS_MAP={1:'A1',2:'A2',3:'B1',4:'B2'};
 const BRANCH_MAP={1:'群馬',2:'埼玉',3:'東京',4:'神奈川',5:'山梨',6:'長野',7:'静岡',8:'愛知',9:'三重',10:'滋賀',11:'大阪',12:'兵庫',13:'和歌山',14:'岡山',15:'広島',16:'山口',17:'福岡',18:'佐賀',19:'長崎',20:'熊本',21:'鹿児島',22:'沖縄',23:'香川',24:'徳島',25:'高知',26:'愛媛',27:'京都',28:'福井',29:'石川',30:'富山',31:'新潟',32:'千葉',33:'茨城',34:'栃木',35:'群馬',36:'岐阜',37:'島根',38:'鳥取',39:'宮城',40:'福島',41:'山形',42:'秋田',43:'青森',44:'北海道',45:'岩手'};
+// 会場特性データ：艇国データバンク「場別1コース成績一覧」（集計期間2025/7/1〜2026/6/30）
+// https://boatrace-db.net/stadium/acourse/course/1/ を基に更新（in1＝1コース1着率の実測値）。
+// sashi/makiは in1 の変化分を「差し3:まくり7」で配分し直した推定値（内訳の実測データが無いため近似）。
 const VENUE_CHARS={
-  '01':{in1:55.2,sashi:48,maki:46,night:false,windCorr:-0.05,char:'赤城おろしの強風が吹きやすく向かい風時はインが不利。冬は特に荒れやすい。'},
-  '02':{in1:49.8,sashi:55,maki:50,night:false,windCorr:-0.08,char:'全国有数のイン弱コース。川幅が狭くまくり差しが決まりやすい。モーター性能と技量が重要。'},
-  '03':{in1:48.3,sashi:53,maki:52,night:false,windCorr:-0.10,char:'河川コースで潮の干満差があり水面が変化。難水面で展示タイム重要。'},
-  '04':{in1:47.1,sashi:50,maki:58,night:false,windCorr:-0.12,char:'全国屈指のイン弱コース。夏の追い風でさらにアウト有利。センターまくりと2M逆転が多い。'},
-  '05':{in1:54.1,sashi:46,maki:44,night:false,windCorr:-0.03,char:'静水面でインが平均的。スタートタイミングが重要でフライングが多い。'},
-  '06':{in1:52.3,sashi:49,maki:47,night:false,windCorr:-0.05,char:'汽水湖で潮の影響あり。風向きによって有利コースが変わる。'},
-  '07':{in1:53.8,sashi:47,maki:45,night:false,windCorr:-0.04,char:'静水面でインが強め。設備が整っており平均的なコース。'},
-  '08':{in1:56.4,sashi:44,maki:42,night:false,windCorr:-0.03,char:'インが全国平均より強い。追い風時はさらにイン有利。'},
-  '09':{in1:55.7,sashi:45,maki:42,night:false,windCorr:-0.02,char:'静水面でインが強い。風の影響が少なく安定。勝率通りの決着が多い。'},
-  '10':{in1:53.1,sashi:48,maki:48,night:false,windCorr:-0.06,char:'海が近く日本海からの強風時は波が立ちやすい。'},
-  '11':{in1:50.9,sashi:52,maki:50,night:false,windCorr:-0.07,char:'湖のため風の影響大。比叡おろしで荒れることも。展示タイム重視。'},
-  '12':{in1:59.3,sashi:38,maki:36,night:true, windCorr:0.02, char:'全国屈指のイン強コース。1号艇勝率60%超。ナイター開催多く灯火でスタート安定。'},
-  '13':{in1:57.8,sashi:40,maki:38,night:false,windCorr:0.01, char:'インが強く安定。追い風でさらにイン有利。モーター反映されやすい。'},
-  '14':{in1:52.6,sashi:50,maki:49,night:false,windCorr:-0.05,char:'潮の影響で水面が変化。渦潮の影響でターンが難しくなることも。'},
-  '15':{in1:53.4,sashi:48,maki:47,night:false,windCorr:-0.06,char:'海面コース。海風の影響受けやすく1M付近の強風でインが不利に。'},
-  '16':{in1:54.2,sashi:46,maki:45,night:false,windCorr:-0.05,char:'インが平均的。海に面しており風の影響あり。展示タイム参考に。'},
-  '17':{in1:52.9,sashi:49,maki:48,night:false,windCorr:-0.06,char:'世界遺産近くの海上コース。干満差が大きく水面変化しやすい。'},
-  '18':{in1:53.6,sashi:47,maki:46,night:false,windCorr:-0.04,char:'干満差があり潮の影響あり。地元選手が水面を知り尽くし有利。'},
-  '19':{in1:55.1,sashi:45,maki:43,night:false,windCorr:-0.04,char:'インが標準的。関門海峡の潮流の影響を受けることがある。'},
-  '20':{in1:54.7,sashi:46,maki:44,night:false,windCorr:-0.04,char:'インが標準的。モーター性能と展示タイムが重要。'},
-  '21':{in1:56.2,sashi:43,maki:41,night:false,windCorr:-0.02,char:'インが強め。追い風でさらに有利。スタートの安定感が重要。'},
-  '22':{in1:52.8,sashi:48,maki:47,night:true, windCorr:-0.05,char:'海に面したコース。風と潮の影響を受ける。ナイター開催あり。'},
-  '23':{in1:53.3,sashi:47,maki:46,night:false,windCorr:-0.05,char:'海のコースで風の影響あり。イン逃げと差しが多い標準的なコース。'},
-  '24':{in1:62.1,sashi:34,maki:30,night:false,windCorr:0.03, char:'全国トップクラスのイン強コース。狭いコースでまくりが難しく逃げ率62%超。'},
+  '01':{in1:49.4,sashi:50,maki:50,night:false,windCorr:-0.05,char:'標高約120mで気圧が低くモーターの出足が弱くなりがち。冬は赤城おろしの強風も吹きやすく、全国平均よりインが弱い部類（1着率49.4%）。桐生・宮島は4コースまくりが決まりやすい「捲り場」の代表格。'},
+  '02':{in1:42.6,sashi:57,maki:55,night:false,windCorr:-0.10,char:'全国で最もイン勝率が低い場（1着率42.6%）。水面の幅が全国最狭で第1ターンマークが窮屈、外からのまくりが決まりやすい。1号艇を鵜呑みにせず2〜4コースへの厚い配分が必須。'},
+  '03':{in1:47.0,sashi:53,maki:53,night:false,windCorr:-0.10,char:'全国唯一の河川コースで、川の流れ＋潮の干満＋風の影響を受けやすくイン信頼度が低め（1着率47.0%）。難水面で展示タイムが重要。'},
+  '04':{in1:46.6,sashi:50,maki:58,night:false,windCorr:-0.12,char:'海水面で横風が強く、1マークの振れも大きいイン受難の場（1着率46.6%）。センターまくりと2M逆転が多い。'},
+  '05':{in1:53.9,sashi:46,maki:44,night:false,windCorr:-0.03,char:'静水面でインが平均的（1着率53.9%）。スタートタイミングが重要でフライングが多い。'},
+  '06':{in1:53.6,sashi:49,maki:46,night:false,windCorr:-0.05,char:'汽水湖で潮の影響あり（1着率53.6%）。風向きによって有利コースが変わる。'},
+  '07':{in1:57.5,sashi:46,maki:42,night:false,windCorr:-0.04,char:'静水面でインがやや強め（1着率57.5%）。設備が整っており平均的なコース。'},
+  '08':{in1:57.8,sashi:44,maki:41,night:false,windCorr:-0.03,char:'インが全国平均より強い（1着率57.8%）。追い風時はさらにイン有利。'},
+  '09':{in1:58.0,sashi:44,maki:40,night:false,windCorr:-0.02,char:'静水面でインが強め（1着率58.0%）。風の影響が少なく安定、勝率通りの決着が多い。'},
+  '10':{in1:51.8,sashi:48,maki:49,night:false,windCorr:-0.06,char:'海が近く日本海からの強風時は波が立ちやすい（1着率51.8%）。'},
+  '11':{in1:53.0,sashi:51,maki:49,night:false,windCorr:-0.07,char:'湖のため風の影響大（1着率53.0%）。比叡おろしで荒れることも。展示タイム重視。'},
+  '12':{in1:57.1,sashi:39,maki:38,night:true, windCorr:0.02, char:'イン強コース（1着率57.1%）。ナイター開催多く灯火でスタート安定。'},
+  '13':{in1:60.2,sashi:39,maki:36,night:false,windCorr:0.01, char:'全国トップクラスのイン強コース（1着率60.2%）。追い風でさらにイン有利。モーター反映されやすい。'},
+  '14':{in1:48.1,sashi:51,maki:52,night:false,windCorr:-0.05,char:'海水面で潮位差の影響が大きく、うねりが出やすいイン警戒場（1着率48.1%）。渦潮の影響でターンが難しくなることも。'},
+  '15':{in1:55.5,sashi:47,maki:46,night:false,windCorr:-0.06,char:'海面コース。海風の影響受けやすく1M付近の強風でインが不利に（1着率55.5%）。'},
+  '16':{in1:56.4,sashi:45,maki:43,night:false,windCorr:-0.05,char:'インがやや強め（1着率56.4%）。海に面しており風の影響あり。展示タイム参考に。'},
+  '17':{in1:57.0,sashi:48,maki:45,night:false,windCorr:-0.06,char:'世界遺産近くの海上コースだが実測イン勝率は平均以上（1着率57.0%）。干満差が大きく水面変化しやすい一方、4コースまくりが決まりやすい「捲り場」の代表格でもある。'},
+  '18':{in1:62.7,sashi:44,maki:40,night:false,windCorr:-0.02,char:'全国トップのイン強コース（1着率62.7%）。モーニング開催で1号艇に実力上位の選手を置く企画番組が多く、イン信頼度が非常に高い。地元選手が水面を知り尽くし有利。'},
+  '19':{in1:60.9,sashi:43,maki:39,night:false,windCorr:-0.02,char:'全国屈指のイン強コース（1着率60.9%）。穏やかな水面で3連対率も86%超と安定。関門海峡の潮流の影響を受けることがある点のみ注意。'},
+  '20':{in1:58.2,sashi:45,maki:42,night:false,windCorr:-0.04,char:'インがやや強め（1着率58.2%）。モーター性能と展示タイムが重要。'},
+  '21':{in1:60.3,sashi:42,maki:38,night:false,windCorr:-0.01,char:'イン強コース（1着率60.3%）。モーニング開催で1号艇に実力上位の選手を置く企画番組が多い。追い風でさらに有利。'},
+  '22':{in1:57.4,sashi:47,maki:44,night:true, windCorr:-0.05,char:'インがやや強め（1着率57.4%）。海に面したコースで風と潮の影響を受ける。ナイター開催あり。'},
+  '23':{in1:55.7,sashi:46,maki:44,night:false,windCorr:-0.05,char:'海のコースで風の影響あり（1着率55.7%）。イン逃げと差しが多い標準的なコース。'},
+  '24':{in1:61.6,sashi:34,maki:30,night:false,windCorr:0.03, char:'全国屈指のイン強コース（1着率61.6%）。「イン天国」と呼ばれるほど狭いコースでまくりが難しい。'},
 };
+
 
 // ===================================================
 // STATE
@@ -2652,8 +2656,10 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
       case 'main':
       case 'osae':      return mainAxisP1 * axisConfMult * 3.2;
       case 'sashi':     return (sc.sashi||0) * 2.6;
-      case 'maki':      return (sc.maki||0) * 2.6;
-      case 'makisashi': return (sc.makiSashi||0) * 2.6;
+      // まくり・まくり差しは実戦データ（2026/9時点：まくり353点中1的中=0.3%、まくり差し28点中0的中=0%）で
+      // 他カテゴリより著しく非効率だったため、展開確率(sc)自体は変えず、係数を大きく下げて点数の優先度を下げる。
+      case 'maki':      return (sc.maki||0) * 1.0;
+      case 'makisashi': return (sc.makiSashi||0) * 0.6;
       case 'ana':       return anaStrength;
       case 'nuki':      return 0.55;
       default:          return 0.5;

@@ -307,7 +307,12 @@ label{font-size:.72rem;color:var(--text2);display:block;margin-bottom:3px;}
 <div class="page" id="page-history">
   <div class="flex justify-between align-center mb1">
     <h2 style="font-size:.95rem;font-weight:700;">予想履歴</h2>
-    <button class="btn btn-sm" style="background:var(--bg3);border:1px solid var(--border);color:var(--text2);" onclick="clearHistory()">全削除</button>
+    <div style="display:flex;gap:6px;">
+      <button class="btn btn-sm" style="background:var(--bg3);border:1px solid var(--border);color:var(--text2);" onclick="exportHistory()">書き出し</button>
+      <button class="btn btn-sm" style="background:var(--bg3);border:1px solid var(--border);color:var(--text2);" onclick="document.getElementById('historyImportInput').click()">読み込み</button>
+      <input type="file" id="historyImportInput" accept="application/json" style="display:none;" onchange="importHistory(this.files[0])">
+      <button class="btn btn-sm" style="background:var(--bg3);border:1px solid var(--border);color:var(--text2);" onclick="clearHistory()">全削除</button>
+    </div>
   </div>
   <div id="histList"></div>
 </div>
@@ -3412,6 +3417,64 @@ function clearHistory(){
     renderHistory();
     initStats();
   }
+}
+
+// ━━ 履歴のエクスポート/インポート（Claudeとのデータ共有・機種変更対策）━━
+function exportHistory(){
+  const hist=getHistory();
+  if(hist.length===0){ alert('履歴がまだありません。予想を保存すると書き出せるようになります。'); return; }
+  const payload={
+    exportedAt:new Date().toISOString(),
+    version:1,
+    history:hist,
+    weights:JSON.parse(localStorage.getItem('brWeights')||'null'),
+  };
+  const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  const dateStr=new Date().toISOString().slice(0,10);
+  a.href=url;
+  a.download=`boatrace_history_${dateStr}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function importHistory(file){
+  if(!file) return;
+  const reader=new FileReader();
+  reader.onload=(e)=>{
+    try{
+      const data=JSON.parse(e.target.result);
+      // エクスポート形式（{history:[...]}）と、素の配列（[...]）の両方に対応
+      const incoming=Array.isArray(data)?data:(data.history||null);
+      if(!incoming||!Array.isArray(incoming)){
+        alert('ファイルの形式が正しくありません（history配列が見つかりません）。');
+        return;
+      }
+      const existing=getHistory();
+      const existingIds=new Set(existing.map(h=>h.id));
+      const merged=[...existing];
+      let addedCount=0;
+      incoming.forEach(h=>{
+        if(!existingIds.has(h.id)){ merged.push(h); addedCount++; }
+      });
+      merged.sort((a,b)=>(b.id||0)-(a.id||0));
+      localStorage.setItem('brHistory',JSON.stringify(merged.slice(0,500)));
+      if(!Array.isArray(data)&&data.weights){
+        if(confirm('重み設定(brWeights)もファイルに含まれています。今の重みを上書きしますか？')){
+          localStorage.setItem('brWeights',JSON.stringify(data.weights));
+        }
+      }
+      renderHistory();
+      if(document.getElementById('page-stats').classList.contains('active')) initStats();
+      alert(`読み込み完了：${addedCount}件を追加しました（重複${incoming.length-addedCount}件はスキップ）。`);
+    }catch(err){
+      alert('ファイルの読み込みに失敗しました：'+err.message);
+    }
+  };
+  reader.readAsText(file);
 }
 
 // ===================================================

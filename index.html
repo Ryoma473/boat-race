@@ -2463,6 +2463,26 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
     return combos;
   }
 
+  // ━━ 波乱パートナー候補生成（穴・まくり専用）━━
+  // build23Variantsは「2着/3着適性が高い艇」しか拾わないため、
+  // 評価の低い艇が紛れ込んで高配当になるケース（実データで複数確認）を捉えられない。
+  // ここでは逆に「評価が低い艇」同士のペアも別枠で候補に加える。
+  // 採用されるかは動的スコアリングに委ねるため、無条件に点数を食うわけではない。
+  function buildLongshotPartners(winner, count){
+    const rest=entries.filter(e=>e.no!==winner);
+    // p2の低い順（＝2着候補として評価が低い順）に並べる
+    const weakSorted=[...rest].sort((a,b)=>(placeP[a.no]?.p2||0)-(placeP[b.no]?.p2||0));
+    const combos=[];
+    for(let i=0;i<Math.min(count,weakSorted.length);i++){
+      const second=weakSorted[i].no;
+      const rest3=rest.filter(e=>e.no!==second);
+      for(let j=0;j<Math.min(count,rest3.length);j++){
+        combos.push([winner, second, rest3[j].no]);
+      }
+    }
+    return combos;
+  }
+
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // 展開パターン判定：どの「残り方」が濃厚か
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -2566,6 +2586,10 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
     build23Variants(mb.no,2).forEach(([a,b2c,c2c])=>{
       addPick(a,b2c,c2c,'まくり','maki',`【まくり】${mb.no}号艇1着・2着${b2c}/3着${c2c}のスワップ候補`);
     });
+    // 波乱パートナー：評価の低い艇が2・3着に紛れ込むパターンも候補に加える（まくり1着＋評価下位艇の実例が多いため）
+    buildLongshotPartners(mb.no,2).forEach(([a,b2c,c2c])=>{
+      addPick(a,b2c,c2c,'まくり','maki',`【まくり・波乱】${mb.no}号艇1着・評価下位の${b2c}/${c2c}が絡む一発`);
+    });
   });
 
   // まくり差し（外がまくり差しで内が残る・1号艇は必ず絡める）
@@ -2600,6 +2624,11 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
         const hasIn1=a===1||b2c===1||c2c===1;
         addPick(a,b2c,c2c,'穴','ana',`【穴・高配当】${ms.no}号艇1着・2着${b2c}/3着${c2c}のスワップ候補`,!hasIn1);
       });
+      // 波乱パートナー（穴は評価の低い艇が絡んでこそ高配当になるカテゴリのため必須）
+      buildLongshotPartners(ms.no,2).forEach(([a,b2c,c2c])=>{
+        const hasIn1=a===1||b2c===1||c2c===1;
+        addPick(a,b2c,c2c,'穴','ana',`【穴・波乱】${ms.no}号艇1着・評価下位の${b2c}/${c2c}が絡む一発`,!hasIn1);
+      });
     }
     const bigHole=holeCandEntries.find(e=>e.no>=4&&e.no!==ms?.no&&e.no!==axis);
     if(bigHole){
@@ -2608,6 +2637,10 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
       // 大穴も2着・3着のスワップ候補を生成（1号艇なしでも許可＝真の波乱パターンの網羅）
       build23Variants(bigHole.no,2).forEach(([a,b2c,c2c])=>{
         addPick(a,b2c,c2c,'穴','ana',`【大穴・波乱】${bigHole.no}号艇1着・2着${b2c}/3着${c2c}のスワップ候補`,true);
+      });
+      // 大穴の波乱パートナー（評価下位艇同士のペアも許可・1号艇なしOK）
+      buildLongshotPartners(bigHole.no,2).forEach(([a,b2c,c2c])=>{
+        addPick(a,b2c,c2c,'穴','ana',`【大穴・波乱】${bigHole.no}号艇1着・評価下位の${b2c}/${c2c}が絡む一発`,true);
       });
     }
   }

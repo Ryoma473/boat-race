@@ -1604,80 +1604,94 @@ function renderScoreGrid(){
 // ===================================================
 
 // ── 適応的重みの管理（LocalStorage）────────────────
+// 基準値（baseWeight）：どれだけ学習が進んでも、この値の50%〜150%の範囲でしかブレないようにする土台。
+// 「初期重み」＝「基準値」として扱う（新しく別の基準テーブルを増やすと初期値と乖離するため、あえて同じものを使う）。
+const BASE_WEIGHTS={
+  exhibitTime:  1.80,  // ①展示タイム
+  exhibitST:    1.60,  // ②展示スタート
+  motor:        1.40,  // ③モーター
+  boat:         1.10,  // ④ボート
+  startAbility: 1.20,  // ⑤スタート力（平均ST）
+  windSpeed:    1.10,  // ⑥風速
+  windDir:      1.00,  // ⑦風向
+  wave:         0.90,  // ⑧波高
+  sessionForm:  0.95,  // ⑨今節成績
+  nationalRate: 0.80,  // ⑩全国勝率
+  localRate:    0.85,  // ⑪当地勝率
+  courseRecord: 0.75,  // ⑫コース実績
+};
 function getWeights(){
   try{
     const w=JSON.parse(localStorage.getItem('brWeights')||'null');
     if(w&&typeof w.exhibitTime==='number') return w;
   }catch(e){}
-  // STEP4: 優先順位に基づく初期重み
-  return {
-    exhibitTime:  1.80,  // ①展示タイム
-    exhibitST:    1.60,  // ②展示スタート
-    motor:        1.40,  // ③モーター
-    boat:         1.10,  // ④ボート
-    startAbility: 1.20,  // ⑤スタート力（平均ST）
-    windSpeed:    1.10,  // ⑥風速
-    windDir:      1.00,  // ⑦風向
-    wave:         0.90,  // ⑧波高
-    sessionForm:  0.95,  // ⑨今節成績
-    nationalRate: 0.80,  // ⑩全国勝率
-    localRate:    0.85,  // ⑪当地勝率
-    courseRecord: 0.75,  // ⑫コース実績
-    adjustCount:  0,
-  };
+  // STEP4: 優先順位に基づく初期重み（＝BASE_WEIGHTSと同じ値からスタート）
+  return {...BASE_WEIGHTS, adjustCount:0};
 }
 function saveWeights(w){ localStorage.setItem('brWeights',JSON.stringify(w)); }
 
-// ── STEP10/11: 過去データ分析→重み自動調整（強化版）────
+// ── STEP10/11: 過去データ分析→重み自動調整（強化版：基準値クランプ＋長期/直近ブレンド）────
+// 「直近で特定項目が続けて外れたから急に重みを下げる」という過学習を防ぐため、
+// ①長期成績(全履歴)と直近成績(30件)をブレンドし、②基準値(BASE_WEIGHTS)の50%〜150%を絶対に超えないようにする。
 function autoAdjustWeights(){
-  const hist=getHistory().filter(h=>h.hit!==null&&h.selfAnalysis);
-  if(hist.length<5) return; // 5件未満は学習しない
+  const allHist=getHistory().filter(h=>h.hit!==null&&h.selfAnalysis);
+  if(allHist.length<5) return; // 5件未満は学習しない
 
   const w=getWeights();
-  const recent=hist.slice(0,30); // 直近30件を分析
-  const n=recent.length;
-  if(n===0) return;
 
-  // 各要素について「的中時にOKだった率」「ハズレ時にOKだった率」を計算
-  const hitItems={et:0,st:0,motor:0,wind:0,session:0,rate:0};
-  const missItems={et:0,st:0,motor:0,wind:0,session:0,rate:0};
-  const hitN=recent.filter(h=>h.hit).length;
-  const missN=recent.filter(h=>!h.hit).length;
-
-  recent.forEach(h=>{
-    const a=h.selfAnalysis;
-    if(!a) return;
-    const target=h.hit?hitItems:missItems;
-    if(a.exhibitOk)  target.et++;
-    if(a.startOk)    target.st++;
-    if(a.motorOk)    target.motor++;
-    if(a.windOk)     target.wind++;
-    if(a.sessionOk)  target.session++;
-    if(a.rateOk)     target.rate++;
-  });
-
-  // 的中時に「OK」だった率が高い項目 → 重みを上げる
-  // ハズレ時に「OK」だった率が高い項目 → 重みを下げる（過大評価だった）
-  const adj=0.04;
-  function calcDelta(key){
-    const hitRate = hitN>0 ? hitItems[key]/hitN : 0;
-    const missRate= missN>0 ? missItems[key]/missN : 0;
-    // 的中時OK率が高く・ハズレ時OK率が低い → プラス調整
-    // 的中時OK率が低く・ハズレ時OK率が高い → マイナス調整（この要素を信頼しすぎ）
-    return (hitRate - missRate) * adj;
+  // 各要素について「的中時にOKだった率」「ハズレ時にOKだった率」を集計するヘルパー
+  function tally(list){
+    const hitItems={et:0,st:0,motor:0,wind:0,session:0,rate:0};
+    const missItems={et:0,st:0,motor:0,wind:0,session:0,rate:0};
+    const hitN=list.filter(h=>h.hit).length;
+    const missN=list.filter(h=>!h.hit).length;
+    list.forEach(h=>{
+      const a=h.selfAnalysis;
+      if(!a) return;
+      const target=h.hit?hitItems:missItems;
+      if(a.exhibitOk)  target.et++;
+      if(a.startOk)    target.st++;
+      if(a.motorOk)    target.motor++;
+      if(a.windOk)     target.wind++;
+      if(a.sessionOk)  target.session++;
+      if(a.rateOk)     target.rate++;
+    });
+    return {hitItems,missItems,hitN,missN};
   }
 
-  w.exhibitTime  = Math.max(1.0, Math.min(3.0, w.exhibitTime  + calcDelta('et')));
-  w.exhibitST    = Math.max(0.8, Math.min(2.5, w.exhibitST    + calcDelta('st')));
-  w.motor        = Math.max(0.8, Math.min(2.5, w.motor        + calcDelta('motor')));
-  w.windSpeed    = Math.max(0.5, Math.min(2.0, w.windSpeed    + calcDelta('wind')));
-  w.sessionForm  = Math.max(0.5, Math.min(2.0, w.sessionForm  + calcDelta('session')));
-  w.nationalRate = Math.max(0.4, Math.min(1.5, w.nationalRate + calcDelta('rate')));
+  // 長期成績：全履歴（最大200件、極端な肥大化は防ぐ）／直近成績：直近30件
+  const longTerm=tally(allHist.slice(0,200));
+  const recent=tally(allHist.slice(0,30));
+
+  const learningRate=0.05;      // 1回の学習でのベース変化量（全体の強さ）
+  const longTermWeight=0.70;    // 長期成績の比重（短期的なブレに引っ張られすぎないため高め）
+  const recentWeight=0.30;      // 直近成績の比重
+
+  function rateDelta(t,key){
+    const hitRate = t.hitN>0 ? t.hitItems[key]/t.hitN : 0;
+    const missRate= t.missN>0? t.missItems[key]/t.missN: 0;
+    return hitRate - missRate; // 的中時によく効いていた項目ほどプラス、ハズレ時に効いていたならマイナス
+  }
+  function calcDelta(key){
+    const blended = rateDelta(longTerm,key)*longTermWeight + rateDelta(recent,key)*recentWeight;
+    return blended * learningRate;
+  }
+  // 基準値(BASE_WEIGHTS)の50%〜150%を絶対に超えない範囲でクランプ
+  function clampToBase(key, value){
+    return Math.max(BASE_WEIGHTS[key]*0.50, Math.min(BASE_WEIGHTS[key]*1.50, value));
+  }
+
+  w.exhibitTime  = clampToBase('exhibitTime',  w.exhibitTime  + calcDelta('et'));
+  w.exhibitST    = clampToBase('exhibitST',    w.exhibitST    + calcDelta('st'));
+  w.motor        = clampToBase('motor',        w.motor        + calcDelta('motor'));
+  w.windSpeed    = clampToBase('windSpeed',    w.windSpeed    + calcDelta('wind'));
+  w.sessionForm  = clampToBase('sessionForm',  w.sessionForm  + calcDelta('session'));
+  w.nationalRate = clampToBase('nationalRate', w.nationalRate + calcDelta('rate'));
   w.adjustCount  = (w.adjustCount||0)+1;
   saveWeights(w);
 
   // デバッグログ（開発確認用）
-  console.log(`[自動学習] ${w.adjustCount}回目 | 展示T:${w.exhibitTime.toFixed(2)} モーター:${w.motor.toFixed(2)} 今節:${w.sessionForm.toFixed(2)} 勝率:${w.nationalRate.toFixed(2)} 風:${w.windSpeed.toFixed(2)}`);
+  console.log(`[自動学習] ${w.adjustCount}回目（長期${longTerm.hitN+longTerm.missN}件×${longTermWeight}＋直近${recent.hitN+recent.missN}件×${recentWeight}）| 展示T:${w.exhibitTime.toFixed(2)} モーター:${w.motor.toFixed(2)} 今節:${w.sessionForm.toFixed(2)} 勝率:${w.nationalRate.toFixed(2)} 風:${w.windSpeed.toFixed(2)}`);
 }
 
 // ── STEP9: レース後自己分析（バグ修正版・16項目5段階評価）────

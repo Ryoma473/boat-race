@@ -432,6 +432,28 @@ const VENUE_CHARS={
   '24':{in1:61.6,sashi:34,maki:30,night:false,windCorr:0.03, char:'全国屈指のイン強コース（1着率61.6%）。「イン天国」と呼ばれるほど狭いコースでまくりが難しい。'},
 };
 
+// ━━ 会場固有の追い風・向かい風方向 ━━
+// 「向かい風/追い風」は東西南北の絶対方角ではなく、各会場のスタンド→1マークの向きで決まる
+// （BOAT RACE公式解説：「追い風とは、スタンド側から第1ターンマークへ向かって吹く風」）。
+// そのため本来は24場すべてを個別に確認する必要があるが、公式の水面情報で確認できたのは
+// 現時点で宮島のみ（南風＝向かい風・北風＝追い風。一般的な「北＝向かい風」という通説とは逆だった）。
+// 他の23場は未検証のため、通説（北系＝向かい風/南系＝追い風）を暫定採用する。
+// ロジックを1箇所にまとめたので、今後1場ずつ公式資料で確認が取れ次第、このテーブルに追加していけばよい
+// （以前は同じ判定式が9箇所に重複しており、修正のたびに全箇所を直す必要があった）。
+const VENUE_WIND={
+  '17':{head:['南','南東','南西'],tail:['北','北東','北西'],confident:true}, // 宮島：公式水面分析で確認済み
+};
+function getWindEffect(dir, venueCode){
+  const vw=VENUE_WIND[venueCode];
+  if(vw&&vw.confident){
+    return {isHead:vw.head.some(d=>dir.includes(d)), isTail:vw.tail.some(d=>dir.includes(d)), confident:true};
+  }
+  // 未検証の場：通説を暫定採用（今までの挙動と同じ）
+  const isHead=['北','北東','北西'].some(d=>dir.includes(d));
+  const isTail=['南','南東','南西'].some(d=>dir.includes(d));
+  return {isHead, isTail, confident:false};
+}
+
 
 // ===================================================
 // STATE
@@ -1309,8 +1331,7 @@ function calcScores(){
   const spd=parseFloat(wx.windSpeed)||0;
   const dir=wx.windDir||'';
   const wave=parseFloat(wx.wave)||0;
-  const isHead=['北','北東','北西'].some(d=>dir.includes(d));
-  const isTail=['南','南東','南西'].some(d=>dir.includes(d));
+  const {isHead,isTail}=getWindEffect(dir,APP.selectedVenue?.code);
   const windStr=Math.min(1,spd/10);
 
   // 展示タイム順位（速い順＝高評価）
@@ -1706,8 +1727,7 @@ function selfAnalyzeRace(histId, isHit, resultOrder, payout){
   const wx=h.weather||{};
   const spd=parseFloat(wx.windSpeed)||0;
   const dir=wx.windDir||'';
-  const isHead=['北','北東','北西'].some(d=>dir.includes(d));
-  const isTail=['南','南東','南西'].some(d=>dir.includes(d));
+  const {isHead,isTail}=getWindEffect(dir,h.venueCode);
   const wave=parseFloat(wx.wave)||0;
 
   const order=(resultOrder||'').split(/[-,\s]+/).map(n=>parseInt(n)).filter(n=>!isNaN(n));
@@ -1894,8 +1914,7 @@ function simulateExpand(entries, vc, wx, etRankMap, withET){
   const spd=parseFloat(wx.windSpeed)||0;
   const dir=wx.windDir||'';
   const wave=parseFloat(wx.wave)||0;
-  const isHead=['北','北東','北西'].some(d=>dir.includes(d));
-  const isTail=['南','南東','南西'].some(d=>dir.includes(d));
+  const {isHead,isTail}=getWindEffect(dir,APP.selectedVenue?.code);
   const in1=(vc.in1||54), sashi=(vc.sashi||47), maki=(vc.maki||45);
 
   // 各艇のスタート能力スコア
@@ -1956,8 +1975,7 @@ function simulateExpand(entries, vc, wx, etRankMap, withET){
 function calcPlaceProbs(entries, vc, wx, expand, etRankMap, withET, W){
   const spd=parseFloat(wx.windSpeed)||0;
   const dir=wx.windDir||'';
-  const isHead=['北','北東','北西'].some(d=>dir.includes(d));
-  const isTail=['南','南東','南西'].some(d=>dir.includes(d));
+  const {isHead,isTail}=getWindEffect(dir,APP.selectedVenue?.code);
   const sc=expand.sc;
 
   const prob={};
@@ -2242,8 +2260,7 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   const vc=VENUE_CHARS[APP.selectedVenue?.code]||{in1:54,sashi:47,maki:45};
   const spd=parseFloat(wx.windSpeed)||0;
   const dir=wx.windDir||'';
-  const isHead=['北','北東','北西'].some(d=>dir.includes(d));
-  const isTail=['南','南東','南西'].some(d=>dir.includes(d));
+  const {isHead,isTail}=getWindEffect(dir,APP.selectedVenue?.code);
   const wave=parseFloat(wx.wave)||0;
 
   // ━━ プロSTEP1: 「この展開で誰が1着を獲るか」を決める ━━
@@ -2789,8 +2806,7 @@ function buildStoryReason(boats, label, placeP, expand, etRankMap, withET, vc, w
   const spd=parseFloat(wx.windSpeed)||0;
   const dir=wx.windDir||'';
   const wave=parseFloat(wx.wave)||0;
-  const isHead=['北','北東','北西'].some(d=>dir.includes(d));
-  const isTail=['南','南東','南西'].some(d=>dir.includes(d));
+  const {isHead,isTail}=getWindEffect(dir,APP.selectedVenue?.code);
   const etRa=etRankMap[a]||0;
   const stA=ea.exhibitST>0?ea.exhibitST:ea.avgST;
 
@@ -2862,8 +2878,7 @@ function buildPickReason(boats, placeP, expand, etRankMap, withET, vc, wx, W){
   const spd=parseFloat(wx.windSpeed)||0;
   const dir=wx.windDir||'';
   const wave=parseFloat(wx.wave)||0;
-  const isHead=['北','北東','北西'].some(d=>dir.includes(d));
-  const isTail=['南','南東','南西'].some(d=>dir.includes(d));
+  const {isHead,isTail}=getWindEffect(dir,APP.selectedVenue?.code);
   const r=[];
 
   // ── 1着の根拠（プロは「なぜこの艇が先頭に立つか」をまず語る）
@@ -2964,7 +2979,7 @@ function buildScenarios(placeP, expand, entries, etRankMap, withET, vc, wx){
   const sc=expand.sc;
   const spd=parseFloat(wx.windSpeed)||0;
   const dir=wx.windDir||'';
-  const isHead=['北','北東','北西'].some(d=>dir.includes(d));
+  const {isHead}=getWindEffect(dir,APP.selectedVenue?.code);
   const outFavorable=(isHead&&spd>=5)||(parseFloat(wx.wave)||0)>=15;
   const outerEliteStrong=entries.filter(e=>e.no>=3&&(e.grade==='A1'||e.grade==='A2')&&
     (e.sessionResults.length?e.sessionResults.reduce((a,b)=>a+b,0)/e.sessionResults.length<=3.0:e.motorRate>=50));
@@ -3038,7 +3053,7 @@ function runPred(){
   const dir=wx.windDir||'';
   const spd=parseFloat(wx.windSpeed)||0;
   const wave=parseFloat(wx.wave)||0;
-  const isHead=['北','北東','北西'].some(d=>dir.includes(d));
+  const {isHead}=getWindEffect(dir,APP.selectedVenue?.code);
 
   // 適応的重みを取得
   const W=getWeights();

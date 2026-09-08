@@ -284,7 +284,7 @@ label{font-size:.72rem;color:var(--text2);display:block;margin-bottom:3px;}
     </div>
     <div class="tc" id="tc-pred">
       <div class="card" style="background:var(--bg3);margin-bottom:.75rem;">
-        <div class="card-title">予想点数を選択</div>
+        <div class="card-title">予想点数を選択（三連単）</div>
         <div id="pointSelectRow" style="display:flex;gap:.4rem;flex-wrap:wrap;">
           <button class="btn pt-btn" data-pt="6"  onclick="selectPredPoints(6,this)"  style="flex:1;min-width:60px;padding:.5rem;">6点</button>
           <button class="btn pt-btn" data-pt="8"  onclick="selectPredPoints(8,this)"  style="flex:1;min-width:60px;padding:.5rem;">8点</button>
@@ -293,6 +293,22 @@ label{font-size:.72rem;color:var(--text2);display:block;margin-bottom:3px;}
           <button class="btn pt-btn" data-pt="18" onclick="selectPredPoints(18,this)" style="flex:1;min-width:60px;padding:.5rem;">18点</button>
           <button class="btn pt-btn" data-pt="20" onclick="selectPredPoints(20,this)" style="flex:1;min-width:60px;padding:.5rem;">20点</button>
         </div>
+      </div>
+      <div class="card" style="background:var(--bg3);margin-bottom:.75rem;">
+        <div class="flex justify-between align-center mb1">
+          <div class="card-title" style="margin-bottom:0;">二連単も生成する</div>
+          <label style="display:flex;align-items:center;gap:.3rem;font-size:.78rem;">
+            <input type="checkbox" id="enable2RenTan" onchange="toggle2RenTan(this.checked)"> ON
+          </label>
+        </div>
+        <div id="pointSelectRow2" style="display:none;gap:.4rem;flex-wrap:wrap;margin-top:.5rem;">
+          <button class="btn pt2-btn" data-pt="4" onclick="selectPredPoints2(4,this)"  style="flex:1;min-width:60px;padding:.5rem;">4点</button>
+          <button class="btn pt2-btn" data-pt="5" onclick="selectPredPoints2(5,this)"  style="flex:1;min-width:60px;padding:.5rem;">5点</button>
+          <button class="btn pt2-btn active" data-pt="6" onclick="selectPredPoints2(6,this)" style="flex:1;min-width:60px;padding:.5rem;">6点</button>
+          <button class="btn pt2-btn" data-pt="7" onclick="selectPredPoints2(7,this)"  style="flex:1;min-width:60px;padding:.5rem;">7点</button>
+          <button class="btn pt2-btn" data-pt="8" onclick="selectPredPoints2(8,this)"  style="flex:1;min-width:60px;padding:.5rem;">8点</button>
+        </div>
+        <div style="font-size:.68rem;color:var(--text3);margin-top:.4rem;">2連単は1・2着のみで的中するため三連単より当てやすい代わりに配当は低め。点数は4〜8点の狭いレンジで運用するのがおすすめです。</div>
       </div>
       <button class="btn btn-primary" id="predBtn" onclick="generatePrediction()" style="width:100%;padding:.7rem;font-size:.88rem;margin-bottom:.75rem;">
         ⚡ <span id="predBtnLabel">10</span>点予想を生成（三連単・期待値算出）
@@ -468,6 +484,8 @@ let APP={
   scores:[],
   charts:{},
   predPoints:10,    // 予想点数（ステップ⑤：6/8/10/15/18/20から選択）
+  enable2RenTan:false, // 二連単も生成するか
+  predPoints2:6,    // 二連単の点数（4〜8から選択）
 };
 
 // ===================================================
@@ -2171,6 +2189,19 @@ function estOdds(a,b,c, placeP, entries){
   const p=triProb(a,b,c,placeP,entries);
   return Math.max(3,Math.min(9999,Math.round(0.75/p)));
 }
+// 二連単版：1着確率 × （1着艇を除いた中での）条件付き2着確率（3着の項を持たないだけでtriProbと同じ考え方）
+function duoProb(a,b, placeP, entries){
+  const pa=placeP[a]?.p1||0.01;
+  const rem=entries.filter(e=>e.no!==a);
+  const s=rem.reduce((s,e)=>s+(placeP[e.no]?.p2||0.01),0)||1;
+  const pb=(placeP[b]?.p2||0.01)/s;
+  return Math.max(0.0001, pa*pb);
+}
+function estOdds2(a,b, placeP, entries){
+  const p=duoProb(a,b,placeP,entries);
+  // 二連単は三連単よりオッズの絶対水準が低くなりやすいため控除率を少し高めに設定
+  return Math.max(1.2,Math.min(999,Math.round((0.80/p)*10)/10));
+}
 
 // ── STEP1: レース分類（5段階）──────────────────────
 // ── 予想点数の選択（ステップ⑤）─────────────────────
@@ -2179,6 +2210,15 @@ function selectPredPoints(pt, btn){
   document.querySelectorAll('.pt-btn').forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');
   document.getElementById('predBtnLabel').textContent=pt;
+}
+function toggle2RenTan(on){
+  APP.enable2RenTan=on;
+  document.getElementById('pointSelectRow2').style.display=on?'flex':'none';
+}
+function selectPredPoints2(pt, btn){
+  APP.predPoints2=pt;
+  document.querySelectorAll('.pt2-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
 }
 
 function classifyRace(chaosScore){
@@ -2252,7 +2292,7 @@ function findMakiSashiCandidates(entries, etRankMap, withET){
 
 // ── STEP7: プロの思考で買い目を生成 ─────────────────
 // プロは「展開ストーリー」から逆算して買い目を作る
-function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, canHole, etRankMap){
+function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, canHole, etRankMap, total2){
   const withET=entries.filter(e=>e.exhibitTime>0).sort((a,b)=>b.exhibitTime-a.exhibitTime);
   const {main:mainCnt, anti:antiCnt, hole:holeCnt}=race;
   const sc=expand.sc;
@@ -2790,7 +2830,49 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   APP._axisConfidence=axisConfidence;
   APP._axis=axis;
 
-  return finalResult;
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // ━━ 二連単モード ━━
+  // 3連単と同じ「1着候補の絞り込み(winnerCandidates)→軸→カテゴリ」の土台をそのまま流用し、
+  // 3着の不確実性を丸ごとカットすることで的中率を上げる狙い。
+  // カテゴリ強度(categoryStrength)も3連単と同じ関数を再利用し、評価基準を一致させる。
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  let finalResult2=[];
+  if(total2>0){
+    function catFor2(no){
+      if(no===axis) return 'osae';
+      if(sashiCand.some(e=>e.no===no)) return 'sashi';
+      if(makiCand.some(e=>e.no===no)) return 'maki';
+      return 'ana';
+    }
+    const catLabelMap2={osae:axis===1?'本命':'本線',sashi:'差し',maki:'まくり',ana:'穴'};
+    const seen2=new Set();
+    const cand2=[];
+    winnerCandidates.forEach(no=>{
+      const partners=[...entries].filter(e=>e.no!==no)
+        .sort((a,b)=>(placeP[b.no]?.p2||0)-(placeP[a.no]?.p2||0))
+        .slice(0,4); // 2着候補上位4艇まで（1号艇なしも許容＝2連単は3連単より波乱を拾いやすくてよい）
+      partners.forEach(p=>{
+        const key=`${no}-${p.no}`;
+        if(seen2.has(key)) return;
+        seen2.add(key);
+        const cat=catFor2(no);
+        const score=duoProb(no,p.no,placeP,entries)*categoryStrength(cat);
+        cand2.push({boats:[no,p.no], label:catLabelMap2[cat]||cat, cat, score});
+      });
+    });
+    cand2.sort((a,b)=>b.score-a.score);
+    // 軸の最上位ペアは最低保証（3連単と同じ考え方）
+    const top2Main=cand2.find(p=>p.boats[0]===axis);
+    if(top2Main) finalResult2.push(top2Main);
+    for(const p of cand2){
+      if(finalResult2.length>=total2) break;
+      if(p===top2Main) continue;
+      finalResult2.push(p);
+    }
+    finalResult2=finalResult2.slice(0,total2);
+  }
+
+  return {picks3:finalResult, picks2:finalResult2};
 }
 
 // ── プロ思考の予想理由生成 ────────────────────────────
@@ -3120,11 +3202,13 @@ function runPred(){
 
 
   // ── STEP7: 展開から買い目生成 ─────────────────────
-  const rawPicks=buildPicksFromExpand(placeP,expand,entries,raceClass,makiSashiCands,canHole,etRankMap);
+  const total2=APP.enable2RenTan?(APP.predPoints2||6):0;
+  const rawPicksBoth=buildPicksFromExpand(placeP,expand,entries,raceClass,makiSashiCands,canHole,etRankMap,total2);
+  const rawPicks=rawPicksBoth.picks3;
   const scenarios=buildScenarios(placeP,expand,entries,etRankMap,withET,vc,wx);
   APP._scenarios=scenarios;
 
-  // ── STEP5: 期待値計算・最終リスト ────────────────
+  // ── STEP5: 期待値計算・最終リスト（三連単）────────
   const result=rawPicks.map(p=>{
     const [a,b,c]=p.boats;
     const prob=triProb(a,b,c,placeP,entries);
@@ -3141,12 +3225,27 @@ function runPred(){
   // 例: 1-2-3,1-3-2,1-6-4... → 2-1-4,2-4-1... → 3-1-4... → 6-1-4...
   result.sort((a,b)=>a.boats[0]-b.boats[0]||b.ev-a.ev);
 
-  renderPredV5(result,raceClass,expand,chaosScore,chaosLines,placeP,W);
-  savePredHistory(result);
+  // ── STEP5b: 期待値計算・最終リスト（二連単、有効時のみ）────
+  let result2=[];
+  if(total2>0){
+    result2=rawPicksBoth.picks2.map(p=>{
+      const [a,b]=p.boats;
+      const prob=duoProb(a,b,placeP,entries);
+      const odds=estOdds2(a,b,placeP,entries);
+      const ev=parseFloat((prob*odds).toFixed(3));
+      const conf=prob>=0.20?'A':prob>=0.10?'B':prob>=0.05?'C':prob>=0.02?'D':'E';
+      const confC={'A':'var(--teal)','B':'var(--blue)','C':'var(--gold)','D':'var(--orange)','E':'var(--red)'}[conf];
+      return {...p,type:'二連単',prob,odds,ev,conf,confC};
+    });
+    result2.sort((a,b)=>a.boats[0]-b.boats[0]||b.ev-a.ev);
+  }
+
+  renderPredV5(result,raceClass,expand,chaosScore,chaosLines,placeP,W,result2);
+  savePredHistory(result,result2);
 }
 
 // ── 予想表示 v5 ──────────────────────────────────
-function renderPredV5(picks,raceClass,expand,chaosScore,chaosLines,placeP,W){
+function renderPredV5(picks,raceClass,expand,chaosScore,chaosLines,placeP,W,picks2){
   const v=APP.selectedVenue;
   const vc=VENUE_CHARS[v?v.code:'01']||{in1:54};
   const sc=expand.sc;
@@ -3246,10 +3345,40 @@ function renderPredV5(picks,raceClass,expand,chaosScore,chaosLines,placeP,W){
       <div class="pred-reason">${storyHtml}${reasonHtml}</div>
     </div>`;
   });
-  html+=`</div>
+  html+=`</div>`;
+
+  // ── 二連単セクション（有効時のみ）─────────────────
+  if(picks2&&picks2.length){
+    html+=`<div style="margin-top:1rem;padding-top:.75rem;border-top:2px dashed var(--border);">
+      <div class="card-title" style="margin-bottom:.5rem;">二連単予想（${picks2.length}点）</div>
+      <div class="pred-list">`;
+    picks2.forEach((p,i)=>{
+      const [a,b]=p.boats;
+      const boats2=`<span class="bn bn${a}">${a}</span><span class="pred-arr">▶</span><span class="bn bn${b}">${b}</span>`;
+      const lc2=labelC[p.label]||'var(--text2)';
+      const evc2=p.ev>=2.0?'var(--teal)':p.ev>=1.0?'var(--blue)':'var(--text3)';
+      html+=`<div class="pred-card ${rankCls[i]||''}">
+        <span class="pred-rank ${i===0?'r1':i===1?'r2':i===2?'r3':''}">${rkMk(i)}</span>
+        <div class="pred-boats">${boats2}</div>
+        <div style="flex:1;margin-left:4px;">
+          <span style="font-size:.62rem;padding:1px 5px;border-radius:3px;background:${lc2}20;color:${lc2};font-weight:700;">${p.label}</span>
+          <span style="font-size:.62rem;padding:1px 5px;border-radius:3px;background:${(p.confC||'#888')}20;color:${p.confC||'#888'};font-weight:700;margin-left:3px;">信頼${p.conf}</span>
+        </div>
+        <div class="pred-meta">
+          <div class="pred-conf">${(p.prob*100).toFixed(1)}%</div>
+          <div style="font-size:.7rem;color:var(--text2);">推定${p.odds}倍</div>
+          <div class="pred-ev" style="color:${evc2};font-weight:700;">EV ${p.ev}</div>
+          <div class="cbar"><div class="cfill" style="width:${Math.min(100,p.prob*150)}%;"></div></div>
+        </div>
+      </div>`;
+    });
+    html+=`</div></div>`;
+  }
+
+  html+=`
   <div style="margin-top:.75rem;padding:.65rem 1rem;background:var(--bg3);border:1px solid var(--border);border-radius:6px;font-size:.72rem;color:var(--text2);line-height:1.8;">
     ⚡ <b>適応型予想エンジン v5</b>: 展開シミュレーション＋STEP4優先順位重み付け＋自己学習対応<br>
-    📊 合計投資額 ${picks.length*100}円想定　⚠️ 投票は自己責任で（20歳未満禁止）
+    📊 合計投資額 ${picks.length*100}円想定${picks2&&picks2.length?`（＋二連単${picks2.length*100}円想定）`:''}　⚠️ 投票は自己責任で（20歳未満禁止）
   </div>`;
   document.getElementById('predOutput').innerHTML=html;
 }
@@ -3328,7 +3457,7 @@ function recalcAllInvest(cfg){
 // ===================================================
 // 履歴
 // ===================================================
-function savePredHistory(picks){
+function savePredHistory(picks, picks2){
   const v=APP.selectedVenue;
   const cfg=getPurchaseConfig();
   const item={
@@ -3349,6 +3478,14 @@ function savePredHistory(picks){
     invest:picks.length*cfg.unitAmt, // 設定から自動計算
     payout:0,
     hit:null,
+    // ── 二連単（有効時のみ、既存の三連単データ構造とは独立させる）──
+    picks2:(picks2&&picks2.length)?picks2.map(p=>({
+      boats:p.boats,type:p.type,label:p.label,
+      prob:p.prob,odds:p.odds,ev:p.ev,conf:p.conf
+    })):[],
+    invest2:(picks2&&picks2.length)?picks2.length*cfg.unitAmt:0,
+    payout2:0,
+    hit2:null,
   };
   const hist=getHistory();
   hist.unshift(item);
@@ -3403,11 +3540,18 @@ function renderHistory(){
     // 投資額: 履歴に保存済みの値を使う（設定変更時は自動更新済み）
     const invest=h.invest||(h.picks?.length||cfg.points)*cfg.unitAmt;
     const profit=(h.payout||0)-invest;
+    // ── 二連単（保存されている場合のみ表示）──
+    const has2=h.picks2&&h.picks2.length>0;
+    const picks2Html=has2?(h.picks2||[]).map(p=>`<span style="font-size:.7rem;background:var(--bg4);padding:2px 5px;border-radius:3px;">${p.boats.join('-')}</span>`).join(' '):'';
+    const invest2=h.invest2||0;
+    const profit2=(h.payout2||0)-invest2;
+    const stCls2=h.hit2===true?'badge-hit':h.hit2===false?'badge-miss':'badge-pend';
+    const stTxt2=h.hit2===true?'🎯 的中':h.hit2===false?'❌ ハズレ':'未確認';
     return `<div class="hist-item">
       <div class="flex justify-between align-center mb1">
         <div><span style="font-weight:600;">${h.venue} ${h.race}R</span> <span class="text-xs text-muted">${dtStr}</span></div>
         <div class="flex gap1 align-center">
-          <span class="badge ${stCls}">${stTxt}</span>
+          <span class="badge ${stCls}">三連単${stTxt}</span>
           <button class="btn btn-sm" style="background:var(--bg4);color:var(--text3);" onclick="deleteHistory(${h.id})">✕</button>
         </div>
       </div>
@@ -3422,6 +3566,21 @@ function renderHistory(){
         ${h.resultOrder?`着順:${h.resultOrder}　`:''}払戻:${(h.payout||0).toLocaleString()}円　
         損益:<b style="color:${profit>=0?'var(--teal)':'var(--red)'}">${profit>=0?'+':''}${profit.toLocaleString()}円</b>
       </div>`:''}
+      ${has2?`<div style="margin-top:.5rem;padding-top:.5rem;border-top:1px dashed var(--border);">
+        <div class="flex justify-between align-center mb1">
+          <span class="text-xs" style="font-weight:600;">二連単</span>
+          <span class="badge ${stCls2}">${stTxt2}</span>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:.5rem;">${picks2Html}</div>
+        <div class="flex gap1 align-center" style="flex-wrap:wrap;">
+          <input type="number" placeholder="二連単払戻(円)" style="width:120px;flex-shrink:0;" id="pay2-${h.id}" value="${h.payout2||''}">
+          <span class="text-xs text-muted">投資: ${invest2.toLocaleString()}円</span>
+        </div>
+        ${h.hit2!==null||h.payout2>0?`<div class="text-xs mt1" style="color:${h.hit2===true?'var(--teal)':h.hit2===false?'var(--red)':'var(--text2)'};">
+          払戻:${(h.payout2||0).toLocaleString()}円　
+          損益:<b style="color:${profit2>=0?'var(--teal)':'var(--red)'}">${profit2>=0?'+':''}${profit2.toLocaleString()}円</b>
+        </div>`:''}
+      </div>`:''}
       ${h.selfAnalysis?renderSelfAnalysis(h.selfAnalysis):''}
     </div>`;
   }).join('');
@@ -3434,12 +3593,16 @@ function updateResult(id){
   const orderRaw=(document.getElementById(`ord-${id}`)?.value||'').trim();
   const payRaw=document.getElementById(`pay-${id}`)?.value;
   const pay=payRaw===''||payRaw==null?0:parseInt(payRaw)||0;
+  const pay2Raw=document.getElementById(`pay2-${id}`)?.value;
+  const pay2=pay2Raw===''||pay2Raw==null?0:parseInt(pay2Raw)||0;
 
   hist[i].resultOrder=orderRaw;
   hist[i].payout=pay;
+  if(hist[i].picks2&&hist[i].picks2.length) hist[i].payout2=pay2;
 
   if(!orderRaw){
     hist[i].hit=null;
+    hist[i].hit2=null;
     hist[i].selfAnalysis=null;
   } else {
     const order=orderRaw.split(/[-,\s]+/).map(n=>parseInt(n)).filter(n=>!isNaN(n));
@@ -3453,6 +3616,15 @@ function updateResult(id){
         p.boats[0]===order[0]&&p.boats[1]===order[1]&&p.boats[2]===order[2]
       );
       hist[i].hit=isHit;
+
+      // 二連単の的中判定（同じ着順入力の1・2着部分だけを見る）
+      if(hist[i].picks2&&hist[i].picks2.length){
+        const isHit2=hist[i].picks2.some(p=>
+          p.boats&&p.boats.length===2&&
+          p.boats[0]===order[0]&&p.boats[1]===order[1]
+        );
+        hist[i].hit2=isHit2;
+      }
 
       // 自己分析をここで実行（histは既に更新済みのものを渡す）
       try{

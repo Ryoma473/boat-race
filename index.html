@@ -2212,54 +2212,88 @@ function estOdds2(a,b, placeP, entries){
 // それぞれ別々に同じロジックを重複実装しており、片方を修正してももう片方に反映されず、
 // 「シナリオ表示の買い目」と「実際の20点予想」がズレる原因になっていた。
 // 1箇所に統一し、両方が必ず同じ決まり手・同じブーストを参照するようにする。
-function getKimariteForAxisGlobal(axisArg, entries, sorted, sc, outerEliteStrong, outFavorable){
-  let km='通常', kmNote='';
-  if(axisArg===1){
-    const attackerExists=outerEliteStrong.length>=1||outFavorable;
-    if(attackerExists){ km='逃げB'; kmNote='外が攻めて1号艇が弾き返す。2着は攻めた艇、3着はイン粘りか展開艇'; }
-    else { km='逃げA'; kmNote='2号艇が内を差し追走する王道展開。2着は2号艇最有力'; }
-  } else if(axisArg===2){
-    km='2号差し'; kmNote='1号艇のターンが漏れた内側を2号艇が差す。2着はほぼ1号艇残り';
-  } else if(axisArg===3){
-    if(sc.makiSashi>=sc.maki){ km='3号まくり差し'; kmNote='3号艇が2号艇を叩き1号艇の内を差す。2号艇は引き波で沈み5,6号艇が浮上'; }
-    else { km='3号まくり'; kmNote='3号艇が内2艇を上から叩く。4,5号艇が連動して2着浮上、6号艇が3着'; }
-  } else if(axisArg===4){
-    if(sc.maki>=sc.sashi){ km='4号カドまくり'; kmNote='4号艇が内3艇を飲み込む強襲。5号艇がマーク差しで2着ほぼ確定、6号艇が3着連動'; }
-    else { km='4号差し'; kmNote='3号艇のまくりが流れた隙を4号艇が差す。2着は残る1号艇か攻めた3号艇、3着は5号艇'; }
-  } else if(axisArg===5){
-    km='5号まくり差し'; kmNote='4号艇の攻めで全艇が外に流れた隙を5号艇が最速で抜く大穴展開。2着は4号艇、3着は6号艇';
-  } else if(axisArg===6){
-    km='6号一発'; kmNote='大外一気の展開。5号艇が連動しやすく、内勢は壊滅的';
-  }
-
+//
+// ━━ 決まり手は「二者択一」ではなく「連続的なヒント」として扱う ━━
+// 以前は「外の実力者がいるか/いないか」のような境界条件で逃げA/逃げBを完全に切り替えており、
+// 境界線をまたいだ瞬間に、選ばれなかった側でしか優遇されない艇（例：3号艇）の評価がゼロになる
+// という事故が起きていた（実データで発覚した「1-2-3/1-3-2が出ない」問題の根本原因）。
+// ここでは両パターンのブースト表を必ず両方計算し、「もっともらしさ」の連続値で按分する。
+function getKimariteForAxisGlobal(axisArg, entries, sorted, sc, outerEliteStrong, outFavorable, spd){
   const boost={};
   entries.forEach(e=>{ boost[e.no]=1.0; });
-  if(km==='逃げA'){
-    boost[2]=(boost[2]||1)*1.5;
+  let km='通常', kmNote='';
+
+  if(axisArg===1){
+    // 「外が攻めてくる強さ」を0〜1の連続値で算出（以前はtrue/falseの二択だった）
+    const attackStrength=Math.max(0,Math.min(1,
+      outerEliteStrong.length*0.30 +
+      (outFavorable?0.40:0) +
+      Math.min(1,(spd||0)/8)*0.20
+    ));
+    // 逃げA用ブースト表
+    const boostA={}; entries.forEach(e=>{ boostA[e.no]=1.0; });
+    boostA[2]=1.5;
     // 3号艇も明確に優遇する：実データ上「1→2→3」「1→3→2」の2パターンだけで
     // 全3連単的中の10%以上を占めるほど頻出するのに、以前は3号艇が完全に無印(1.0倍)だった
-    boost[3]=(boost[3]||1)*1.3;
-  } else if(km==='逃げB'){
+    boostA[3]=1.3;
+    // 逃げB用ブースト表
+    const boostB={}; entries.forEach(e=>{ boostB[e.no]=1.0; });
     const attacker=sorted.find(e=>e.no>=3&&e.no!==axisArg);
-    if(attacker) boost[attacker.no]=(boost[attacker.no]||1)*1.4;
-    boost[2]=(boost[2]||1)*1.1;
+    if(attacker) boostB[attacker.no]=1.4;
+    boostB[2]=1.1;
     // 攻め役が3号艇でなくても、1号艇が逃げ切った場合の3号艇残りは無視できない頻度で起こる
-    if(!attacker||attacker.no!==3) boost[3]=(boost[3]||1)*1.15;
-  } else if(km==='2号差し'){
-    boost[1]=(boost[1]||1)*1.6; boost[3]=(boost[3]||1)*1.2; boost[4]=(boost[4]||1)*1.1;
-  } else if(km==='3号まくり差し'){
-    boost[2]=0.3; boost[1]=(boost[1]||1)*0.8; boost[5]=(boost[5]||1)*1.5; boost[6]=(boost[6]||1)*1.6;
-  } else if(km==='3号まくり'){
-    boost[1]=0.5; boost[2]=0.4; boost[4]=(boost[4]||1)*1.5; boost[5]=(boost[5]||1)*1.4; boost[6]=(boost[6]||1)*1.2;
-  } else if(km==='4号差し'){
-    boost[2]=0.4; boost[1]=(boost[1]||1)*1.3; boost[3]=(boost[3]||1)*1.2; boost[5]=(boost[5]||1)*1.5;
-  } else if(km==='4号カドまくり'){
-    boost[1]=0.4; boost[2]=0.4; boost[3]=0.4; boost[5]=(boost[5]||1)*1.7; boost[6]=(boost[6]||1)*1.4;
-  } else if(km==='5号まくり差し'){
-    boost[4]=(boost[4]||1)*1.6; boost[6]=(boost[6]||1)*1.5; boost[1]=0.5; boost[2]=0.5; boost[3]=0.6;
-  } else if(km==='6号一発'){
-    boost[5]=(boost[5]||1)*1.5; boost[1]=0.5; boost[2]=0.5;
+    if(!attacker||attacker.no!==3) boostB[3]=1.15;
+    // attackStrengthの比率でブレンド（境界線をまたいでも評価が急変しない）
+    entries.forEach(e=>{ boost[e.no]=boostA[e.no]*(1-attackStrength)+boostB[e.no]*attackStrength; });
+
+    km = attackStrength>=0.5?'逃げB':'逃げA';
+    kmNote = attackStrength>=0.5
+      ? `外が攻めて1号艇が弾き返す（攻め強度${Math.round(attackStrength*100)}%）。2着は攻めた艇、3着はイン粘りか展開艇`
+      : `2号艇が内を差し追走する王道展開（攻め強度${Math.round(attackStrength*100)}%）。2着は2号艇最有力`;
+
+  } else if(axisArg===2){
+    km='2号差し'; kmNote='1号艇のターンが漏れた内側を2号艇が差す。2着はほぼ1号艇残り';
+    boost[1]=1.6; boost[3]=1.2; boost[4]=1.1;
+
+  } else if(axisArg===3){
+    // まくり差し寄りかまくり寄りかを、sc(展開シミュレーション確率)の比率で連続的にブレンド
+    const totalMS=(sc.makiSashi||0)+(sc.maki||0);
+    const msRatio=totalMS>0?(sc.makiSashi||0)/totalMS:0.5;
+    const boostMS={}; entries.forEach(e=>{ boostMS[e.no]=1.0; });
+    boostMS[2]=0.3; boostMS[1]=0.8; boostMS[5]=1.5; boostMS[6]=1.6;
+    const boostM={}; entries.forEach(e=>{ boostM[e.no]=1.0; });
+    boostM[1]=0.5; boostM[2]=0.4; boostM[4]=1.5; boostM[5]=1.4; boostM[6]=1.2;
+    entries.forEach(e=>{ boost[e.no]=boostM[e.no]*(1-msRatio)+boostMS[e.no]*msRatio; });
+
+    km = msRatio>=0.5?'3号まくり差し':'3号まくり';
+    kmNote = msRatio>=0.5
+      ? `3号艇が2号艇を叩き1号艇の内を差す（まくり差し優勢${Math.round(msRatio*100)}%）。2号艇は引き波で沈み5,6号艇が浮上`
+      : `3号艇が内2艇を上から叩く（まくり優勢${Math.round((1-msRatio)*100)}%）。4,5号艇が連動して2着浮上、6号艇が3着`;
+
+  } else if(axisArg===4){
+    // カドまくり寄りか差し寄りかを、sc(展開シミュレーション確率)の比率で連続的にブレンド
+    const totalMS2=(sc.maki||0)+(sc.sashi||0);
+    const makiRatio=totalMS2>0?(sc.maki||0)/totalMS2:0.5;
+    const boostMaki={}; entries.forEach(e=>{ boostMaki[e.no]=1.0; });
+    boostMaki[1]=0.4; boostMaki[2]=0.4; boostMaki[3]=0.4; boostMaki[5]=1.7; boostMaki[6]=1.4;
+    const boostSashi={}; entries.forEach(e=>{ boostSashi[e.no]=1.0; });
+    boostSashi[2]=0.4; boostSashi[1]=1.3; boostSashi[3]=1.2; boostSashi[5]=1.5;
+    entries.forEach(e=>{ boost[e.no]=boostSashi[e.no]*(1-makiRatio)+boostMaki[e.no]*makiRatio; });
+
+    km = makiRatio>=0.5?'4号カドまくり':'4号差し';
+    kmNote = makiRatio>=0.5
+      ? `4号艇が内3艇を飲み込む強襲（まくり優勢${Math.round(makiRatio*100)}%）。5号艇がマーク差しで2着ほぼ確定、6号艇が3着連動`
+      : `3号艇のまくりが流れた隙を4号艇が差す（差し優勢${Math.round((1-makiRatio)*100)}%）。2着は残る1号艇か攻めた3号艇、3着は5号艇`;
+
+  } else if(axisArg===5){
+    km='5号まくり差し'; kmNote='4号艇の攻めで全艇が外に流れた隙を5号艇が最速で抜く大穴展開。2着は4号艇、3着は6号艇';
+    boost[4]=1.6; boost[6]=1.5; boost[1]=0.5; boost[2]=0.5; boost[3]=0.6;
+
+  } else if(axisArg===6){
+    km='6号一発'; kmNote='大外一気の展開。5号艇が連動しやすく、内勢は壊滅的';
+    boost[5]=1.5; boost[1]=0.5; boost[2]=0.5;
   }
+
   return {kimarite:km, note:kmNote, boost};
 }
 
@@ -2481,7 +2515,7 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   // 軸(メイン)の決まり手を取得
-  const {kimarite, note:kimariteNote, boost:kimariteBoost}=getKimariteForAxisGlobal(axis, entries, sorted, sc, outerEliteStrong, outFavorable);
+  const {kimarite, note:kimariteNote, boost:kimariteBoost}=getKimariteForAxisGlobal(axis, entries, sorted, sc, outerEliteStrong, outFavorable, spd);
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // 残り展開テンプレート方式
@@ -3098,7 +3132,7 @@ function buildScenarios(placeP, expand, entries, etRankMap, withET, vc, wx){
     const axisNo=cand.no;
     // 決まり手判定（buildPicksFromExpandと完全に同じグローバル関数を使用。以前は別々に重複実装しており、
     // 「シナリオ表示」と「実際の買い目」がズレる原因になっていた）
-    const {kimarite:km, boost}=getKimariteForAxisGlobal(axisNo, entries, sorted, sc, outerEliteStrong, outFavorable);
+    const {kimarite:km, boost}=getKimariteForAxisGlobal(axisNo, entries, sorted, sc, outerEliteStrong, outFavorable, spd);
 
     const p2s=[...entries].filter(e=>e.no!==axisNo)
       .sort((a,b)=>((placeP[b.no]?.p2||0)*boost[b.no])-((placeP[a.no]?.p2||0)*boost[a.no]));

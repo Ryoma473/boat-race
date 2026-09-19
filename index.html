@@ -2661,6 +2661,11 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   build23Variants(axis,3).forEach(([a,b2c,c2c])=>{
     addPick(a,b2c,c2c,'押さえ','osae',`${axis}軸・2着${b2c}/3着${c2c}のスワップ候補`);
   });
+  // 軸の波乱パートナー（評価の低い艇同士のペアも候補に加える。大村10R実データで
+  // 「1着は軸的中・2,3着が評価下位艇同士のペア」を一度も生成できていなかった問題への対応）
+  buildLongshotPartners(axis,2).forEach(([a,b2c,c2c])=>{
+    addPick(a,b2c,c2c,'押さえ','osae',`${axis}軸・評価下位の${b2c}/${c2c}が絡む一発`);
+  });
 
   // ━━ 抜き：軸艇が不安定な時の保険（前艇のミスをすぐ後ろの艇が突く）━━
   const axisEntry=entries.find(e=>e.no===axis);
@@ -2692,6 +2697,10 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
     // 2着・3着のスワップ候補（sb.no基準でp2/p3を算出し直し、決め打ちで拾えない入れ替わりを補う）
     build23Variants(sb.no,2).forEach(([a,b2c,c2c])=>{
       addPick(a,b2c,c2c,'差し','sashi',`【差し】${sb.no}号艇1着・2着${b2c}/3着${c2c}のスワップ候補`);
+    });
+    // 波乱パートナー（評価の低い艇同士のペアも候補に加える）
+    buildLongshotPartners(sb.no,2).forEach(([a,b2c,c2c])=>{
+      addPick(a,b2c,c2c,'差し','sashi',`【差し・波乱】${sb.no}号艇1着・評価下位の${b2c}/${c2c}が絡む一発`);
     });
   });
 
@@ -2824,9 +2833,32 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   const totalPt=race.total||10;
   const scored=result.map(p=>({
     ...p,
+    prob: triProb(p.boats[0],p.boats[1],p.boats[2],placeP,entries),
     score: triProb(p.boats[0],p.boats[1],p.boats[2],placeP,entries) * categoryStrength(p.cat)
   }));
   scored.sort((x,y)=>y.score-x.score);
+
+  // ━━ おすすめ点数の算出 ━━
+  // 「上位6点の1点あたり捕捉確率」を基準にし、点数を広げても基準の40%以上の効率を
+  // 保てている間だけ点数を伸ばす。効率が大きく落ちた時点で打ち切りを推奨する。
+  // （的中確率が高い候補から並んでいるスコアリングの性質をそのまま利用できる）
+  function recommendPoints(scoredList){
+    const opts=[6,8,10,15,20];
+    const top=scoredList.slice(0,20);
+    const cumProb=(n)=> top.slice(0,n).reduce((s,p)=>s+(p.prob||0),0);
+    if(top.length<6) return opts[0];
+    const baseEff=cumProb(Math.min(6,top.length))/Math.min(6,top.length);
+    let rec=opts[0];
+    for(let i=1;i<opts.length;i++){
+      const n=opts[i], prevN=opts[i-1];
+      if(top.length<prevN) break;
+      const cappedN=Math.min(n,top.length);
+      const segEff=(cumProb(cappedN)-cumProb(prevN))/(cappedN-prevN||1);
+      if(segEff>=baseEff*0.40){ rec=cappedN; } else { break; }
+    }
+    return rec;
+  }
+  const recommendedPoints=recommendPoints(scored);
 
   // 軸の本線が1点も入らない事態は避ける（軸を立てた意味を守る最低保証）
   let finalResult=[];
@@ -2923,7 +2955,7 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
     finalResult2=finalResult2.slice(0,total2);
   }
 
-  return {picks3:finalResult, picks2:finalResult2};
+  return {picks3:finalResult, picks2:finalResult2, recommendedPoints};
 }
 
 // ── プロ思考の予想理由生成 ────────────────────────────
@@ -3239,6 +3271,7 @@ function runPred(){
   const total2=APP.enable2RenTan?(APP.predPoints2||6):0;
   const rawPicksBoth=buildPicksFromExpand(placeP,expand,entries,raceClass,makiSashiCands,canHole,etRankMap,total2);
   const rawPicks=rawPicksBoth.picks3;
+  APP._recommendedPoints=rawPicksBoth.recommendedPoints;
   const scenarios=buildScenarios(placeP,expand,entries,etRankMap,withET,vc,wx);
   APP._scenarios=scenarios;
 
@@ -3318,10 +3351,15 @@ function renderPredV5(picks,raceClass,expand,chaosScore,chaosLines,placeP,W,pick
     .map(k=>`${catLabel[k]}${catCount[k]}点`)
     .join('・');
 
+  // おすすめ点数（動的スコアリングの結果から算出。上位6点の効率を基準に、
+  // 点数を広げても40%以上の効率を保てる範囲までを推奨する）
+  const recPt=APP._recommendedPoints;
+  const recBadge=recPt?`<span style="margin-left:8px;padding:2px 8px;border-radius:4px;background:var(--gold)20;color:var(--gold);font-weight:700;">💡おすすめ${recPt}点${recPt===picks.length?'（現在と一致）':''}</span>`:'';
+
   let html=`<div class="alert alert-ok" style="margin-bottom:.75rem;line-height:1.95;font-size:.78rem;">
     <b>🎯 ${v.name} ${APP.selectedRace}R ― 三連単 ${picks.length}点</b>
     <span style="margin-left:8px;padding:2px 8px;border-radius:4px;background:${raceClass.color}25;color:${raceClass.color};font-weight:700;">${raceClass.type}</span>
-    ${adjBadge}<br>
+    ${adjBadge}${recBadge}<br>
     展開: ${scenarioBar}<br>
     1着確率: ${probBars}<br>
     <span style="color:var(--gold);font-weight:700;">🎯 決まり手判定: ${APP._kimarite||'―'}</span>　

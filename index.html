@@ -2547,7 +2547,11 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   const in1P1=placeP[1]?.p1||0;
   const otherTopP1=Math.max(...entries.filter(e=>e.no!==1).map(e=>placeP[e.no]?.p1||0));
   const in1Dominance = in1P1>0 ? (in1P1-otherTopP1)/in1P1 : 0;
-  const in1IsWeak = in1Dominance<0.10; // 1号艇の優位性が10%未満なら「拮抗節」と判定
+  // 相対的な優位性(2番手との差)だけでなく、絶対的な1着確率も見る。
+  // 例：1号艇30%・2番手17%の場合、相対差は43%で「堅い」判定になってしまうが、
+  // 実際には1号艇が1着になる確率は30%しかない（70%は他艇が勝つ）。
+  // これを見逃さないよう、絶対確率が低い場合も拮抗節として扱う。
+  const in1IsWeak = in1Dominance<0.10 || in1P1<0.35;
 
   // 1号艇を必ず絡める制約（プロ方針③）: 大穴パターンと拮抗節では緩和
   function addPick(a,b,c,label,cat,note,allowNoIn1){
@@ -2923,6 +2927,7 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   if(total2>0){
     function catFor2(no){
       if(no===axis) return 'osae';
+      if(no===1) return 'osae'; // 1号艇は軸でなくても「穴」には該当しない（差し・まくり対象でもないため素通りしていたバグ）
       if(sashiCand.some(e=>e.no===no)) return 'sashi';
       if(makiCand.some(e=>e.no===no)) return 'maki';
       return 'ana';

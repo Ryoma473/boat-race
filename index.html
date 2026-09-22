@@ -289,6 +289,7 @@ label{font-size:.72rem;color:var(--text2);display:block;margin-bottom:3px;}
           <button class="btn pt-btn" data-pt="6"  onclick="selectPredPoints(6,this)"  style="flex:1;min-width:60px;padding:.5rem;">6点</button>
           <button class="btn pt-btn" data-pt="8"  onclick="selectPredPoints(8,this)"  style="flex:1;min-width:60px;padding:.5rem;">8点</button>
           <button class="btn pt-btn active" data-pt="10" onclick="selectPredPoints(10,this)" style="flex:1;min-width:60px;padding:.5rem;">10点</button>
+          <button class="btn pt-btn" data-pt="12" onclick="selectPredPoints(12,this)" style="flex:1;min-width:60px;padding:.5rem;">12点</button>
           <button class="btn pt-btn" data-pt="15" onclick="selectPredPoints(15,this)" style="flex:1;min-width:60px;padding:.5rem;">15点</button>
           <button class="btn pt-btn" data-pt="18" onclick="selectPredPoints(18,this)" style="flex:1;min-width:60px;padding:.5rem;">18点</button>
           <button class="btn pt-btn" data-pt="20" onclick="selectPredPoints(20,this)" style="flex:1;min-width:60px;padding:.5rem;">20点</button>
@@ -2141,15 +2142,14 @@ function calcPlaceProbs(entries, vc, wx, expand, etRankMap, withET, W){
     }
 
     // ━━ 1着スコア（コース×相対能力×級別） ━━
-    let p1score;
-    if(courseNo===1){
-      // コース有利度を主軸に、能力（実績+展示）で補強する形に戻す
-      p1score = courseScore * 0.62 + ability * 0.38 * gradeK;
-    } else if(courseNo<=3){
-      p1score = courseScore * 0.40 + ability * 0.60 * gradeK;
-    } else {
-      p1score = courseScore * 0.25 + ability * 0.75 * gradeK;
-    }
+    // 以前は「コース点数 + 実力点数」を別々に足し算しており、
+    // 実力が平均(50点)でも重み0.6〜0.75がかかると30〜37.5点にもなり、
+    // コースの素点差（1コース54点 vs 6コース4点）を実質的に押し潰していた。
+    // → 全艇が平均的な実力でも1号艇の1着シェアが本来54%あるべきところ21.9%まで薄まる計算バグがあった。
+    // 実力を「コース点数への倍率」として掛け算する形に変更。
+    // 実力が平均(zTotal=0)なら倍率1.0となり、コース点数の比率＝全国平均のコース別勝率がそのまま再現される。
+    const abilityMult = Math.max(0.40, Math.min(1.80, 1 + zTotal*0.18));
+    let p1score = courseScore * abilityMult * gradeK;
 
     // 今節好調アウト艇ボーナス（進入コースがアウトの場合）
     if(courseNo>=3&&sessAvg<=1.8) p1score*=1.20;
@@ -2847,7 +2847,7 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   // 保てている間だけ点数を伸ばす。効率が大きく落ちた時点で打ち切りを推奨する。
   // （的中確率が高い候補から並んでいるスコアリングの性質をそのまま利用できる）
   function recommendPoints(scoredList){
-    const opts=[6,8,10,15,20];
+    const opts=[6,8,10,12,15,20];
     const top=scoredList.slice(0,20);
     const cumProb=(n)=> top.slice(0,n).reduce((s,p)=>s+(p.prob||0),0);
     if(top.length<6) return opts[0];

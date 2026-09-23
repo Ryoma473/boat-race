@@ -2095,17 +2095,23 @@ function calcPlaceProbs(entries, vc, wx, expand, etRankMap, withET, W){
     // z-scoreの重み付き合成
     // 実績データ（今節成績・モーター・勝率）を主軸に、展示タイムは同格の補強材料として扱う
     // モーター・ボートは「機力」としてセットで見るため、重みを近づける（1.30→1.10、0.50→0.85）
+    //
+    // 以前はここが完全な固定値で、autoAdjustWeights()が学習したW（自動学習された重み）は
+    // 引数として渡されているのに一度も参照されていなかった（calcScoresの表示用スコアにしか
+    // 反映されておらず、実際の買い目を決めるこちらの本体計算には自動学習が一切効いていなかった）。
+    // BASE_WEIGHTSを基準に「学習後の重み ÷ 基準値」の比率をここにも掛けて、学習結果が
+    // 実際の1着・2着・3着確率にちゃんと反映されるようにする。
     const zTotal =
-      zMotor   * 1.10 +  // ③モーター（実績・機力の一部）
-      zBoat    * 0.85 +  // ④ボート（実績・機力の一部。モーターと近い重みに）
+      zMotor   * 1.10 * (W.motor/BASE_WEIGHTS.motor) +          // ③モーター（実績・機力の一部）
+      zBoat    * 0.85 * (W.boat/BASE_WEIGHTS.boat) +            // ④ボート（実績・機力の一部。モーターと近い重みに）
       imbalancePenalty +  // 機力アンバランスへの減点
-      zSession * 1.25 +  // ⑨今節成績（実績・最も信頼できる直近データ）
-      zExhibit * 0.70 +  // ①展示タイム（当日1回の参考値・過信しない）
-      zTrend   * 0.55 +  // モーター伸び傾向（今節後半の調子）
-      zStability * 0.40 +// スタート安定度
-      zRate    * 0.85 +  // ⑩全国勝率
-      zLocal   * 0.90 +  // ⑪当地勝率
-      zST      * 0.75;   // ⑤スタート力（展示STも同様に参考程度）
+      zSession * 1.25 * (W.sessionForm/BASE_WEIGHTS.sessionForm) + // ⑨今節成績（実績・最も信頼できる直近データ）
+      zExhibit * 0.70 * (W.exhibitTime/BASE_WEIGHTS.exhibitTime) + // ①展示タイム（当日1回の参考値・過信しない）
+      zTrend   * 0.55 +  // モーター伸び傾向（今節後半の調子。対応する学習項目がないため固定）
+      zStability * 0.40 +// スタート安定度（同上）
+      zRate    * 0.85 * (W.nationalRate/BASE_WEIGHTS.nationalRate) + // ⑩全国勝率
+      zLocal   * 0.90 * (W.localRate/BASE_WEIGHTS.localRate) +       // ⑪当地勝率
+      zST      * 0.75 * (W.exhibitST/BASE_WEIGHTS.exhibitST);        // ⑤スタート力（展示STも同様に参考程度）
 
     // z-scoreを0〜100スケールの「相対能力スコア」に変換
     const ability = Math.max(2, Math.min(98, 50 + zTotal*15));

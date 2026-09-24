@@ -229,6 +229,7 @@ label{font-size:.72rem;color:var(--text2);display:block;margin-bottom:3px;}
           </div>
         </div>
         <div id="wxManualStatus" style="font-size:.72rem;color:var(--text3);margin-top:.3rem;"></div>
+        <div id="wxManualStatusRecPreview" style="font-size:.72rem;color:var(--gold);margin-top:.2rem;font-weight:600;"></div>
       </div>
       <div class="card" style="background:var(--bg3);">
         <div class="card-title">コース特性</div>
@@ -254,6 +255,7 @@ label{font-size:.72rem;color:var(--text2);display:block;margin-bottom:3px;}
           <button class="btn" onclick="clearManualExhibit()" style="padding:.5rem;">クリア</button>
         </div>
         <div id="exhibitManualStatus" style="font-size:.72rem;color:var(--text3);margin-top:.3rem;"></div>
+        <div id="exhibitManualStatusRecPreview" style="font-size:.72rem;color:var(--gold);margin-top:.2rem;font-weight:600;"></div>
         <div style="font-size:.68rem;color:var(--text3);margin-top:.3rem;line-height:1.6;">
           展示ST: フライング取消後は「F.07」のように入力可（F付きは自動で警戒フラグ）<br>
           並び順の注記（「まくり」「押し」「差し」）も一緒に入力可（例:「.12まくり」）→自動で展開評価に反映<br>
@@ -944,6 +946,8 @@ function applyManualExhibit(){
   // スコア再計算・出走表再描画
   if(APP.entries.length) calcScores();
   renderEntryTable();
+  // おすすめ点数のプレビュー（予想を生成しなくても目安が見える）
+  previewRecommendedPoints();
 }
 
 function clearManualExhibit(){
@@ -995,6 +999,8 @@ function applyManualWeather(){
   const statusEl=document.getElementById('wxManualStatus');
   statusEl.textContent=`✅ 反映済み: 風向${dir} 風速${speed}m 波高${wave}cm`;
   statusEl.style.color='var(--teal)';
+  // おすすめ点数のプレビュー（予想を生成しなくても目安が見える）
+  previewRecommendedPoints();
 }
 
 function clearManualWeather(){
@@ -3204,7 +3210,8 @@ function buildScenarios(placeP, expand, entries, etRankMap, withET, vc, wx){
   });
 }
 
-function runPred(){
+// ── 予想の「土台」部分を共通化（runPred本体と、反映ボタン直後のおすすめ点数プレビューの両方から使う）──
+function computeCore(){
   const v=APP.selectedVenue;
   const vc=VENUE_CHARS[v?v.code:'01']||{in1:54,sashi:47,maki:45,windCorr:-0.05,night:false};
   const wx=APP.weather;
@@ -3277,6 +3284,30 @@ function runPred(){
   }).sort((a,b)=>(placeP[b.no]?.p1||0)-(placeP[a.no]?.p1||0));
   const canHole=chaosScore>=3&&(makiSashiCands.length>0||holeCandEntries.length>0);
 
+  return {v,vc,wx,entries,W,withET,etRankMap,chaosScore,chaosLines,raceClass,expand,placeP,makiSashiCands,holeCandEntries,canHole};
+}
+
+// ── 展示・気象「反映」ボタンを押した直後に、フル予想生成なしでおすすめ点数だけ先出しする ──
+// （buildPicksFromExpandの動的スコアリングをそのまま使うため、実際の予想生成と同じ基準になる）
+function previewRecommendedPoints(){
+  if(!APP.entries.length||!APP.selectedVenue) return;
+  try{
+    const core=computeCore();
+    const total2=0; // プレビューでは二連単は計算しない（軽量化）
+    const rawPicksBoth=buildPicksFromExpand(core.placeP,core.expand,core.entries,core.raceClass,core.makiSashiCands,core.canHole,core.etRankMap,total2);
+    const rec=rawPicksBoth.recommendedPoints;
+    APP._recommendedPoints=rec;
+    ['exhibitManualStatus','wxManualStatus'].forEach(id=>{
+      const el=document.getElementById(id+'RecPreview');
+      if(el) el.textContent=rec?`💡 現時点のおすすめ点数：${rec}点（予想生成前のプレビュー）`:'';
+    });
+  }catch(e){
+    console.warn('おすすめ点数プレビュー計算エラー:', e.message);
+  }
+}
+
+function runPred(){
+  const {v,vc,wx,entries,W,withET,etRankMap,chaosScore,chaosLines,raceClass,expand,placeP,makiSashiCands,holeCandEntries,canHole}=computeCore();
 
   // ── STEP7: 展開から買い目生成 ─────────────────────
   const total2=APP.enable2RenTan?(APP.predPoints2||6):0;

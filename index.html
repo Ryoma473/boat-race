@@ -229,7 +229,6 @@ label{font-size:.72rem;color:var(--text2);display:block;margin-bottom:3px;}
           </div>
         </div>
         <div id="wxManualStatus" style="font-size:.72rem;color:var(--text3);margin-top:.3rem;"></div>
-        <div id="wxManualStatusRecPreview" style="font-size:.72rem;color:var(--gold);margin-top:.2rem;font-weight:600;"></div>
       </div>
       <div class="card" style="background:var(--bg3);">
         <div class="card-title">コース特性</div>
@@ -293,8 +292,6 @@ label{font-size:.72rem;color:var(--text2);display:block;margin-bottom:3px;}
           <button class="btn pt-btn active" data-pt="10" onclick="selectPredPoints(10,this)" style="flex:1;min-width:60px;padding:.5rem;">10点</button>
           <button class="btn pt-btn" data-pt="12" onclick="selectPredPoints(12,this)" style="flex:1;min-width:60px;padding:.5rem;">12点</button>
           <button class="btn pt-btn" data-pt="15" onclick="selectPredPoints(15,this)" style="flex:1;min-width:60px;padding:.5rem;">15点</button>
-          <button class="btn pt-btn" data-pt="18" onclick="selectPredPoints(18,this)" style="flex:1;min-width:60px;padding:.5rem;">18点</button>
-          <button class="btn pt-btn" data-pt="20" onclick="selectPredPoints(20,this)" style="flex:1;min-width:60px;padding:.5rem;">20点</button>
         </div>
       </div>
       <div class="card" style="background:var(--bg3);margin-bottom:.75rem;">
@@ -999,8 +996,7 @@ function applyManualWeather(){
   const statusEl=document.getElementById('wxManualStatus');
   statusEl.textContent=`✅ 反映済み: 風向${dir} 風速${speed}m 波高${wave}cm`;
   statusEl.style.color='var(--teal)';
-  // おすすめ点数のプレビュー（予想を生成しなくても目安が見える）
-  previewRecommendedPoints();
+  // おすすめ点数のプレビューは展示情報「反映」時のみ表示する（気象情報だけの段階では出さない）
 }
 
 function clearManualWeather(){
@@ -2527,7 +2523,11 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   // 軸(メイン)の決まり手を取得
-  const {kimarite, note:kimariteNote, boost:kimariteBoost}=getKimariteForAxisGlobal(axis, entries, sorted, sc, outerEliteStrong, outFavorable, spd);
+  const {kimarite, note:kimariteNote}=getKimariteForAxisGlobal(axis, entries, sorted, sc, outerEliteStrong, outFavorable, spd);
+  // 決まり手(kimarite/kimariteNote)は「表示用の説明文」としてのみ使う。
+  // 以前は決まり手ブースト(boost)を2着・3着の順位付けにも使っていたが、
+  // 手作業で決めた倍率が的中確率(placeP)ベースの判断と噛み合わずズレを生んでいたため、
+  // 実際の順位付け・点数配分には一切使わないことにした（データドリブンなplacePだけで判断する）。
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // 残り展開テンプレート方式
@@ -2535,11 +2535,11 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   // 展開パターンごとに考えて2・3着を決める
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  // 2着・3着候補（axis以外でp2/p3上位、決まり手補正を掛け合わせる）
+  // 2着・3着候補（axis以外でp2/p3上位。決まり手ブーストは使わず、placePそのままで判断する）
   const p2list=[...entries].filter(e=>e.no!==axis)
-    .sort((a,b)=>((placeP[b.no]?.p2||0)*(kimariteBoost[b.no]||1))-((placeP[a.no]?.p2||0)*(kimariteBoost[a.no]||1)));
+    .sort((a,b)=>(placeP[b.no]?.p2||0)-(placeP[a.no]?.p2||0));
   const p3list=[...entries].filter(e=>e.no!==axis)
-    .sort((a,b)=>((placeP[b.no]?.p3||0)*(kimariteBoost[b.no]||1))-((placeP[a.no]?.p3||0)*(kimariteBoost[a.no]||1)));
+    .sort((a,b)=>(placeP[b.no]?.p3||0)-(placeP[a.no]?.p3||0));
 
   const b1=p2list[0]?.no, b2=p2list[1]?.no, b3=p2list[2]?.no, b4=p2list[3]?.no;
   const c1=p3list[0]?.no, c2=p3list[1]?.no, c3=p3list[2]?.no, c4=p3list[3]?.no;
@@ -2582,18 +2582,16 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   // 「1着が確定した後、2着候補上位×3着候補上位を機械的に組み合わせる」ことで、
   // 手書きの1〜2パターンだけでは拾えない「2着・3着の入れ替わり」を候補に含める。
   // （winner自身を除いた残り艇のp2/p3を、winnerごとに算出し直す＝axis基準の使い回しをしない）
+  // 決まり手ブーストは使わず、placePそのままで判断する（表示用の決まり手ラベルとは切り離す）。
   // 採用するかどうかは既存の動的スコアリング（的中確率ベース）に委ねる。
   function build23Variants(winner, count){
     const rest=entries.filter(e=>e.no!==winner);
-    // winnerが軸(axis)の場合のみ、決まり手ブースト(kimariteBoost)を反映する
-    // （他のカテゴリ(差し/まくり/穴)の勝者には、axis用に計算されたブーストは意味を持たないため適用しない）
-    const bst=(no)=> winner===axis ? (kimariteBoost[no]||1) : 1;
-    const p2sorted=[...rest].sort((a,b)=>((placeP[b.no]?.p2||0)*bst(b.no))-((placeP[a.no]?.p2||0)*bst(a.no)));
+    const p2sorted=[...rest].sort((a,b)=>(placeP[b.no]?.p2||0)-(placeP[a.no]?.p2||0));
     const combos=[];
     for(let i=0;i<Math.min(count,p2sorted.length);i++){
       const second=p2sorted[i].no;
       const rest3=rest.filter(e=>e.no!==second);
-      const p3sorted=[...rest3].sort((a,b)=>((placeP[b.no]?.p3||0)*bst(b.no))-((placeP[a.no]?.p3||0)*bst(a.no)));
+      const p3sorted=[...rest3].sort((a,b)=>(placeP[b.no]?.p3||0)-(placeP[a.no]?.p3||0));
       for(let j=0;j<Math.min(count,p3sorted.length);j++){
         combos.push([winner, second, p3sorted[j].no]);
       }
@@ -2859,7 +2857,7 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   // 保てている間だけ点数を伸ばす。効率が大きく落ちた時点で打ち切りを推奨する。
   // （的中確率が高い候補から並んでいるスコアリングの性質をそのまま利用できる）
   function recommendPoints(scoredList){
-    const opts=[6,8,10,12,15,20];
+    const opts=[6,8,10,12,15];
     const top=scoredList.slice(0,20);
     const cumProb=(n)=> top.slice(0,n).reduce((s,p)=>s+(p.prob||0),0);
     if(top.length<6) return opts[0];
@@ -3297,10 +3295,8 @@ function previewRecommendedPoints(){
     const rawPicksBoth=buildPicksFromExpand(core.placeP,core.expand,core.entries,core.raceClass,core.makiSashiCands,core.canHole,core.etRankMap,total2);
     const rec=rawPicksBoth.recommendedPoints;
     APP._recommendedPoints=rec;
-    ['exhibitManualStatus','wxManualStatus'].forEach(id=>{
-      const el=document.getElementById(id+'RecPreview');
-      if(el) el.textContent=rec?`💡 現時点のおすすめ点数：${rec}点（予想生成前のプレビュー）`:'';
-    });
+    const el=document.getElementById('exhibitManualStatusRecPreview');
+    if(el) el.textContent=rec?`💡 現時点のおすすめ点数：${rec}点（予想生成前のプレビュー）`:'';
   }catch(e){
     console.warn('おすすめ点数プレビュー計算エラー:', e.message);
   }

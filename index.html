@@ -2827,7 +2827,10 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   const topP1 = Math.max(...entries.map(e=>placeP[e.no]?.p1||0));
   const contenderCount = entries.filter(e=>(placeP[e.no]?.p1||0)>=topP1*0.80).length;
   // 混戦度と1着候補の頭数から「穴」を狙う価値を算出（頭数が多い＝本命を絞れない＝穴の価値が上がる）
-  const anaStrength = 0.25 + Math.min(0.5,(race.chaosScore||0)/16) + (contenderCount-1)*0.12;
+  // ※係数2.3は、コース計算修正でmainAxisP1が正しい値（本来の1号艇1着率）に戻ったことで
+  // 本線/押さえの優先度が底上げされ、相対的に穴が埋もれやすくなった分を埋め戻すための調整。
+  // （修正前は本線0.70 vs 穴0.86で穴が優勢、修正後は本線1.60 vs 穴0.86で本線が1.85倍優勢になっていた）
+  const anaStrength = (0.25 + Math.min(0.5,(race.chaosScore||0)/16) + (contenderCount-1)*0.12) * 2.3;
 
   function categoryStrength(cat){
     switch(cat){

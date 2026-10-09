@@ -294,22 +294,6 @@ label{font-size:.72rem;color:var(--text2);display:block;margin-bottom:3px;}
           <button class="btn pt-btn" data-pt="15" onclick="selectPredPoints(15,this)" style="flex:1;min-width:60px;padding:.5rem;">15点</button>
         </div>
       </div>
-      <div class="card" style="background:var(--bg3);margin-bottom:.75rem;">
-        <div class="flex justify-between align-center mb1">
-          <div class="card-title" style="margin-bottom:0;">二連単も生成する</div>
-          <label style="display:flex;align-items:center;gap:.3rem;font-size:.78rem;">
-            <input type="checkbox" id="enable2RenTan" onchange="toggle2RenTan(this.checked)"> ON
-          </label>
-        </div>
-        <div id="pointSelectRow2" style="display:none;gap:.4rem;flex-wrap:wrap;margin-top:.5rem;">
-          <button class="btn pt2-btn" data-pt="4" onclick="selectPredPoints2(4,this)"  style="flex:1;min-width:60px;padding:.5rem;">4点</button>
-          <button class="btn pt2-btn" data-pt="5" onclick="selectPredPoints2(5,this)"  style="flex:1;min-width:60px;padding:.5rem;">5点</button>
-          <button class="btn pt2-btn active" data-pt="6" onclick="selectPredPoints2(6,this)" style="flex:1;min-width:60px;padding:.5rem;">6点</button>
-          <button class="btn pt2-btn" data-pt="7" onclick="selectPredPoints2(7,this)"  style="flex:1;min-width:60px;padding:.5rem;">7点</button>
-          <button class="btn pt2-btn" data-pt="8" onclick="selectPredPoints2(8,this)"  style="flex:1;min-width:60px;padding:.5rem;">8点</button>
-        </div>
-        <div style="font-size:.68rem;color:var(--text3);margin-top:.4rem;">2連単は1・2着のみで的中するため三連単より当てやすい代わりに配当は低め。点数は4〜8点の狭いレンジで運用するのがおすすめです。</div>
-      </div>
       <button class="btn btn-primary" id="predBtn" onclick="generatePrediction()" style="width:100%;padding:.7rem;font-size:.88rem;margin-bottom:.75rem;">
         ⚡ <span id="predBtnLabel">10</span>点予想を生成（三連単・期待値算出）
       </button>
@@ -456,6 +440,18 @@ const VENUE_CHARS={
 // 他の23場は未検証のため、通説（北系＝向かい風/南系＝追い風）を暫定採用する。
 // ロジックを1箇所にまとめたので、今後1場ずつ公式資料で確認が取れ次第、このテーブルに追加していけばよい
 // （以前は同じ判定式が9箇所に重複しており、修正のたびに全箇所を直す必要があった）。
+// モーター/ボートの3連率を出走表APIの1艇分データbから取り出す。
+// APIのフィールド名が確定していないため、想定される名前を順に試し、見つからなければ
+// 「motor/boat」と「top3/top_3」を含むキーを自動で探す。どれも無ければ0（＝計算に影響しない）を返す。
+function pickRate3(b, kind){
+  const names=[`racer_assigned_${kind}_top_3_percent`,`racer_assigned_${kind}_top3_percent`,`${kind}_top_3_percent`,`${kind}_top3_percent`];
+  for(const k of names){ const v=parseFloat(b[k]); if(v>0) return v; }
+  for(const k of Object.keys(b||{})){
+    if(k.includes(kind)&&/top_?3/.test(k)){ const v=parseFloat(b[k]); if(v>0) return v; }
+  }
+  return 0;
+}
+
 const VENUE_WIND={
   '17':{head:['南','南東','南西'],tail:['北','北東','北西'],confident:true}, // 宮島：公式水面分析で確認済み
 };
@@ -484,8 +480,6 @@ let APP={
   scores:[],
   charts:{},
   predPoints:10,    // 予想点数（ステップ⑤：6/8/10/15/18/20から選択）
-  enable2RenTan:false, // 二連単も生成するか
-  predPoints2:6,    // 二連単の点数（4〜8から選択）
 };
 
 // ===================================================
@@ -817,8 +811,13 @@ async function loadRacePanel(){
     localTwoRate: parseFloat(b.racer_local_top_2_percent||0),
     motorNo:   b.racer_assigned_motor_number||'―',
     motorRate: parseFloat(b.racer_assigned_motor_top_2_percent||0),
+    // モーター3連率：APIのフィールド名が未確認のため、想定される表記ゆれを順に試す。
+    // どれも取得できない場合は0のままにし（motorRate3Available判定で安全に無視される）、既存計算には影響させない。
+    motorRate3: pickRate3(b,'motor'),
     boatNo:    b.racer_assigned_boat_number||'―',
     boatRate:  parseFloat(b.racer_assigned_boat_top_2_percent||0),
+    // ボート3連率（同上、表記ゆれに対応）
+    boatRate3: pickRate3(b,'boat'),
     avgST:        parseFloat(b.racer_average_start_timing||0),
     // 展示情報（直前情報APIから取得・初期値0）
     exhibitTime:  0,       // 展示タイム
@@ -928,7 +927,7 @@ function applyManualExhibit(){
   });
 
   // 展示タイム順位を再計算
-  const withET=APP.entries.filter(e=>e.exhibitTime>0).sort((a,b)=>b.exhibitTime-a.exhibitTime);
+  const withET=APP.entries.filter(e=>e.exhibitTime>0).sort((a,b)=>a.exhibitTime-b.exhibitTime);
   withET.forEach((e,i)=>{ e.exhibitRank=i+1; });
 
   const statusEl=document.getElementById('exhibitManualStatus');
@@ -1086,7 +1085,7 @@ function applyPreviewData(v, rno){
     if(tilt!=null) entry.tilt=parseFloat(tilt)||0;
   });
 
-  const withETArr=APP.entries.filter(e=>e.exhibitTime>0).sort((a,b)=>b.exhibitTime-a.exhibitTime);
+  const withETArr=APP.entries.filter(e=>e.exhibitTime>0).sort((a,b)=>a.exhibitTime-b.exhibitTime);
   withETArr.forEach((e,i)=>{ e.exhibitRank=i+1; });
   APP._exhibitLoaded=withETArr.length>0;
   console.log(`[preview適用] ${v.name} ${rno}R 風:${windDir}${windSpeed}m 波:${waveHeight}cm 展示:${withETArr.length}艇`);
@@ -1329,9 +1328,11 @@ function renderEntryTable(){
       <td>${e.localTwoRate>0?e.localTwoRate.toFixed(1)+'%':'―'}</td>
       <td class="text-muted">${e.motorNo}</td>
       <td><div style="color:${mc};font-weight:600;">${e.motorRate.toFixed(1)}%</div>
+          ${e.motorRate3>0?`<div style="font-size:.6rem;color:var(--text3);">3連${e.motorRate3.toFixed(1)}%</div>`:''}
           <div class="mbar"><div class="mfill" style="width:${mw}%;background:${mc};"></div></div></td>
       <td class="text-muted">${e.boatNo}</td>
       <td><div>${e.boatRate.toFixed(1)}%</div>
+          ${e.boatRate3>0?`<div style="font-size:.6rem;color:var(--text3);">3連${e.boatRate3.toFixed(1)}%</div>`:''}
           <div class="mbar"><div class="mfill" style="width:${bw}%;background:var(--blue);"></div></div></td>
       <td style="color:${stC};font-weight:600;">${e.avgST>0?e.avgST.toFixed(2):'―'}${e.exhibitST>0?`<div style="font-size:.62rem;color:var(--text3);">展示${e.exhibitST.toFixed(2)}</div>`:''}</td>
       <td style="font-size:.75rem;white-space:normal;min-width:120px;">${sessionStr}</td>
@@ -1356,7 +1357,7 @@ function calcScores(){
   const windStr=Math.min(1,spd/10);
 
   // 展示タイム順位（速い順＝高評価）
-  const withET=APP.entries.filter(e=>e.exhibitTime>0).sort((a,b)=>b.exhibitTime-a.exhibitTime);
+  const withET=APP.entries.filter(e=>e.exhibitTime>0).sort((a,b)=>a.exhibitTime-b.exhibitTime);
   const etRank={};
   withET.forEach((e,i)=>{ etRank[e.no]=i+1; });
 
@@ -1669,10 +1670,19 @@ const BASE_WEIGHTS={
 function getWeights(){
   try{
     const w=JSON.parse(localStorage.getItem('brWeights')||'null');
-    if(w&&typeof w.exhibitTime==='number') return w;
+    if(w&&typeof w.exhibitTime==='number'){
+      // 展示タイムの向き（小さいほど速い）を修正したため、誤った向きの信号で学習された
+      // 展示タイムの重みを一度だけ基準値に戻す（他の重みはそのまま引き継ぐ）。
+      if(!w.exhibitDirFixed){
+        w.exhibitTime=BASE_WEIGHTS.exhibitTime;
+        w.exhibitDirFixed=true;
+        try{ localStorage.setItem('brWeights',JSON.stringify(w)); }catch(e){}
+      }
+      return w;
+    }
   }catch(e){}
   // STEP4: 優先順位に基づく初期重み（＝BASE_WEIGHTSと同じ値からスタート）
-  return {...BASE_WEIGHTS, adjustCount:0};
+  return {...BASE_WEIGHTS, adjustCount:0, exhibitDirFixed:true};
 }
 function saveWeights(w){ localStorage.setItem('brWeights',JSON.stringify(w)); }
 
@@ -1695,7 +1705,7 @@ function autoAdjustWeights(){
       const a=h.selfAnalysis;
       if(!a) return;
       const target=h.hit?hitItems:missItems;
-      if(a.exhibitOk)  target.et++;
+      if(a.exhibitOk&&h.exhibitFixed)  target.et++; // 向き修正前の履歴は展示タイムの学習に使わない
       if(a.startOk)    target.st++;
       if(a.motorOk)    target.motor++;
       if(a.windOk)     target.wind++;
@@ -2027,12 +2037,18 @@ function calcPlaceProbs(entries, vc, wx, expand, etRankMap, withET, W){
   const rateVals     = entries.map(e=>e.winRate);
   const localVals    = entries.map(e=>e.localWinRate>0?e.localWinRate:e.winRate*0.7);
   const boatVals     = entries.map(e=>e.boatRate);
+  // モーター・ボート3連率（2・3着評価専用）。APIで取得できない場合は全艇0になり、
+  // zscore関数が「全員同じ値=差なし」としてzMotor3/zBoat3を自動的に0にするため、
+  // 既存の1着中心の計算には一切影響しない安全なフォールバックになる。
+  const motorVals3  = entries.map(e=>e.motorRate3||0);
+  const boatVals3   = entries.map(e=>e.boatRate3||0);
   const stVals       = entries.map(e=>-(e.exhibitST>0?e.exhibitST:(e.avgST>0?e.avgST:0.185))); // 速い(小さい)ほど高評価なので符号反転
   const sessionVals  = entries.map(e=>{
     if(e.sessionResults.length>=2) return -(e.sessionResults.reduce((a,b)=>a+b,0)/e.sessionResults.length); // 着順は小さいほど良いので反転
     return -3; // データなしは平均的な扱い
   });
-  // 展示タイムはレース内で1艇でも入力があれば評価対象にする（速いほど高評価＝タイム大きい方が速い）
+  // 展示タイムはレース内で1艇でも入力があれば評価対象にする（150m直線の所要秒数。数字が小さいほど速い＝高評価。
+  // ※以前は「大きい方が速い」と誤って実装されており、最も遅い艇が最高評価・最も速い艇が最下位評価になっていた）
   const hasExhibitData = entries.some(e=>e.exhibitTime>0);
   const exhibitVals = entries.map(e=>e.exhibitTime>0?e.exhibitTime:0); // 未入力は0（平均扱いにしない）
 
@@ -2070,6 +2086,9 @@ function calcPlaceProbs(entries, vc, wx, expand, etRankMap, withET, W){
     const zRate    = zscore(rateVals, e.winRate);
     const zLocal   = zscore(localVals, e.localWinRate>0?e.localWinRate:e.winRate*0.7);
     const zBoat    = zscore(boatVals, e.boatRate);
+    // 3連率z-score（2・3着評価専用。データなしなら自動的に0＝影響なし）
+    const zMotor3  = zscore(motorVals3, e.motorRate3||0);
+    const zBoat3   = zscore(boatVals3, e.boatRate3||0);
     const st=e.exhibitST>0?e.exhibitST:(e.avgST>0?e.avgST:0.185);
     const zST      = zscore(stVals, -st);
     const sessAvg=e.sessionResults.length>=2?(e.sessionResults.reduce((a,b)=>a+b,0)/e.sessionResults.length):3;
@@ -2080,7 +2099,7 @@ function calcPlaceProbs(entries, vc, wx, expand, etRankMap, withET, W){
     let zExhibit=0;
     if(hasExhibitData&&e.exhibitTime>0){
       const validExhibitVals=exhibitVals.filter(v=>v>0);
-      zExhibit=zscore(validExhibitVals, e.exhibitTime);
+      zExhibit=-zscore(validExhibitVals, e.exhibitTime); // 展示タイムは小さいほど速い(良い)ので符号反転
     }
 
     // ① モーター伸び傾向（今節後半に着順が良くなっているか）
@@ -2118,6 +2137,13 @@ function calcPlaceProbs(entries, vc, wx, expand, etRankMap, withET, W){
     // z-scoreを0〜100スケールの「相対能力スコア」に変換
     const ability = Math.max(2, Math.min(98, 50 + zTotal*15));
 
+    // 2着・3着専用の実力値：1着向けのzTotalに3連率（上位3着内率）の比重を追加する。
+    // 「1着まではやや弱いが、安定して2・3着に残る」艇を拾うのが狙い。
+    // motorRate3/boatRate3が未取得なら zMotor3/zBoat3 は自動的に0になり、abilityと同じ値に落ち着く
+    // （＝データが無い場合は既存の計算と実質的に変わらない安全な設計）。
+    const zTotalForPlace = zTotal + zMotor3*0.45 + zBoat3*0.35;
+    const placeAbility = Math.max(2, Math.min(98, 50 + zTotalForPlace*15));
+
     // 級別係数
     const gradeK={'A1':1.20,'A2':1.08,'B1':1.00,'B2':0.85}[e.grade]||1.00;
 
@@ -2141,7 +2167,7 @@ function calcPlaceProbs(entries, vc, wx, expand, etRankMap, withET, W){
     // インコース進入艇でも展示タイムの相対順位が悪ければコース有利度を軽度に割り引く
     if(courseNo===1&&hasExhibitData&&e.exhibitTime>0){
       const validCount=exhibitVals.filter(v=>v>0).length;
-      const inEtRank=[...entries].filter(x=>x.exhibitTime>0).sort((a,b)=>b.exhibitTime-a.exhibitTime).findIndex(x=>x.no===e.no)+1;
+      const inEtRank=[...entries].filter(x=>x.exhibitTime>0).sort((a,b)=>a.exhibitTime-b.exhibitTime).findIndex(x=>x.no===e.no)+1;
       if(inEtRank>0&&validCount>=3){
         if(inEtRank===validCount)      courseScore*=0.85; // 最下位でも軽度減点に留める
         else if(inEtRank>=validCount-1) courseScore*=0.92; // 下位2番手
@@ -2170,8 +2196,8 @@ function calcPlaceProbs(entries, vc, wx, expand, etRankMap, withET, W){
     // 1着はコース有利度が支配的だが、2・3着は「一度レースが動いた後の展開」なので
     // アウト艇でも粘り込み・差し込みで十分入る。コースの影響を弱め、能力(z-score)を主軸にする
     const courseScoreForPlace = Math.sqrt(Math.max(1,courseScore)); // 平方根で差を圧縮（4点→2点、54点→7.3点程度に）
-    const p2score = ability * 0.75 * gradeK + courseScoreForPlace * 0.25;
-    const p3score = ability * 0.72 * gradeK + courseScoreForPlace * 0.28;
+    const p2score = placeAbility * 0.75 * gradeK + courseScoreForPlace * 0.25;
+    const p3score = placeAbility * 0.72 * gradeK + courseScoreForPlace * 0.28;
 
     prob[no]={p1:Math.max(0.1,p1score), p2:Math.max(0.1,p2score), p3:Math.max(0.1,p3score), ability, zTotal};
   });
@@ -2209,12 +2235,6 @@ function duoProb(a,b, placeP, entries){
   const pb=(placeP[b]?.p2||0.01)/s;
   return Math.max(0.0001, pa*pb);
 }
-function estOdds2(a,b, placeP, entries){
-  const p=duoProb(a,b,placeP,entries);
-  // 二連単は三連単よりオッズの絶対水準が低くなりやすいため控除率を少し高めに設定
-  return Math.max(1.2,Math.min(999,Math.round((0.80/p)*10)/10));
-}
-
 // ━━ 決まり手判定（グローバル共有版）━━
 // 以前は buildPicksFromExpand（実際の買い目生成）と buildScenarios（シナリオ表示）が
 // それぞれ別々に同じロジックを重複実装しており、片方を修正してももう片方に反映されず、
@@ -2313,16 +2333,6 @@ function selectPredPoints(pt, btn){
   btn.classList.add('active');
   document.getElementById('predBtnLabel').textContent=pt;
 }
-function toggle2RenTan(on){
-  APP.enable2RenTan=on;
-  document.getElementById('pointSelectRow2').style.display=on?'flex':'none';
-}
-function selectPredPoints2(pt, btn){
-  APP.predPoints2=pt;
-  document.querySelectorAll('.pt2-btn').forEach(b=>b.classList.remove('active'));
-  btn.classList.add('active');
-}
-
 function classifyRace(chaosScore){
   const total=APP.predPoints||10;
   let type, color;
@@ -2394,8 +2404,8 @@ function findMakiSashiCandidates(entries, etRankMap, withET){
 
 // ── STEP7: プロの思考で買い目を生成 ─────────────────
 // プロは「展開ストーリー」から逆算して買い目を作る
-function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, canHole, etRankMap, total2){
-  const withET=entries.filter(e=>e.exhibitTime>0).sort((a,b)=>b.exhibitTime-a.exhibitTime);
+function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, canHole, etRankMap){
+  const withET=entries.filter(e=>e.exhibitTime>0).sort((a,b)=>a.exhibitTime-b.exhibitTime);
   const {main:mainCnt, anti:antiCnt, hole:holeCnt}=race;
   const sc=expand.sc;
   const wx=APP.weather;
@@ -2420,9 +2430,30 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   const topP1ForWinner=Math.max(...entries.map(e=>placeP[e.no]?.p1||0));
   const winnerThreshold=Math.max(topP1ForWinner*0.30, 0.06);
-  const winnerCandidates=entries
+  const byP1=[...entries].sort((a,b)=>(placeP[b.no]?.p1||0)-(placeP[a.no]?.p1||0));
+  let winnerCandidates=byP1
     .filter(e=>(placeP[e.no]?.p1||0)>=winnerThreshold)
     .map(e=>e.no);
+  // 1着候補は3〜4艇を目安にする（固定ではなく、1着確率の分布で調整）：
+  //  ・上限4艇：絞り込みすぎも広げすぎも避ける
+  //  ・下限3艇：1号艇など特定の艇に固定しすぎず、1着になりうる艇を拾う
+  //  ・ただし最有力艇の1着確率が突出している(65%以上)鉄板レースは2艇まで絞ってよい
+  {
+    const minW=topP1ForWinner>=0.65?2:3;
+    if(winnerCandidates.length>4) winnerCandidates=winnerCandidates.slice(0,4);
+    for(const e of byP1){
+      if(winnerCandidates.length>=minW) break;
+      if(!winnerCandidates.includes(e.no)) winnerCandidates.push(e.no);
+    }
+  }
+
+  // ━━ 2着・3着候補数の可変管理 ━━
+  // 目安：2着候補2〜4艇・3着候補4〜5艇。レースごとに固定ではなく、荒れ度に応じて調整する。
+  // 堅いレース（荒れ度が低い＝実力差が明確）ほど絞り、荒れそうなレースほど広げる。
+  // （build23Variants/buildLongshotPartnersの候補生成幅としてこの後使う）
+  const chaosForCount=race.chaosScore||0;
+  const secondCandCount=Math.max(2, Math.min(4, 2 + Math.round(chaosForCount/5)));
+  const thirdCandCount =Math.max(4, Math.min(5, 4 + Math.round(chaosForCount/9)));
 
   // ━━ 穴候補：アウト艇で今節好調・モーター好調・展示上位の艇（1着候補に残った艇のみ） ━━
   const holeCandEntries=[...entries].filter(e=>{
@@ -2584,15 +2615,19 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   // （winner自身を除いた残り艇のp2/p3を、winnerごとに算出し直す＝axis基準の使い回しをしない）
   // 決まり手ブーストは使わず、placePそのままで判断する（表示用の決まり手ラベルとは切り離す）。
   // 採用するかどうかは既存の動的スコアリング（的中確率ベース）に委ねる。
-  function build23Variants(winner, count){
+  // count2省略時はcount3と同じ値を使う（呼び出し側の互換性のため）。
+  // 2着候補は2〜4艇・3着候補は4〜5艇という目安を、荒れ度に応じて可変にしたものを
+  // secondCandCount/thirdCandCountとして呼び出し側から渡す想定。
+  function build23Variants(winner, count2, count3){
+    if(count3===undefined) count3=count2;
     const rest=entries.filter(e=>e.no!==winner);
     const p2sorted=[...rest].sort((a,b)=>(placeP[b.no]?.p2||0)-(placeP[a.no]?.p2||0));
     const combos=[];
-    for(let i=0;i<Math.min(count,p2sorted.length);i++){
+    for(let i=0;i<Math.min(count2,p2sorted.length);i++){
       const second=p2sorted[i].no;
       const rest3=rest.filter(e=>e.no!==second);
       const p3sorted=[...rest3].sort((a,b)=>(placeP[b.no]?.p3||0)-(placeP[a.no]?.p3||0));
-      for(let j=0;j<Math.min(count,p3sorted.length);j++){
+      for(let j=0;j<Math.min(count3,p3sorted.length);j++){
         combos.push([winner, second, p3sorted[j].no]);
       }
     }
@@ -2604,15 +2639,16 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   // 評価の低い艇が紛れ込んで高配当になるケース（実データで複数確認）を捉えられない。
   // ここでは逆に「評価が低い艇」同士のペアも別枠で候補に加える。
   // 採用されるかは動的スコアリングに委ねるため、無条件に点数を食うわけではない。
-  function buildLongshotPartners(winner, count){
+  function buildLongshotPartners(winner, count2, count3){
+    if(count3===undefined) count3=count2;
     const rest=entries.filter(e=>e.no!==winner);
     // p2の低い順（＝2着候補として評価が低い順）に並べる
     const weakSorted=[...rest].sort((a,b)=>(placeP[a.no]?.p2||0)-(placeP[b.no]?.p2||0));
     const combos=[];
-    for(let i=0;i<Math.min(count,weakSorted.length);i++){
+    for(let i=0;i<Math.min(count2,weakSorted.length);i++){
       const second=weakSorted[i].no;
       const rest3=rest.filter(e=>e.no!==second);
-      for(let j=0;j<Math.min(count,rest3.length);j++){
+      for(let j=0;j<Math.min(count3,rest3.length);j++){
         combos.push([winner, second, rest3[j].no]);
       }
     }
@@ -2672,12 +2708,12 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
     if(cx&&cx!==axis&&cx!==b1) addPick(axis, b1, cx, '押さえ','osae', `${axis}→${b1}の本線筋・3着に${cx}が入る保険`);
   });
   // 軸のスワップ候補（2着・3着上位3艇同士の入れ替わりを網羅し、手書きパターンの見落としを防ぐ）
-  build23Variants(axis,3).forEach(([a,b2c,c2c])=>{
+  build23Variants(axis,secondCandCount,thirdCandCount).forEach(([a,b2c,c2c])=>{
     addPick(a,b2c,c2c,'押さえ','osae',`${axis}軸・2着${b2c}/3着${c2c}のスワップ候補`);
   });
   // 軸の波乱パートナー（評価の低い艇同士のペアも候補に加える。大村10R実データで
   // 「1着は軸的中・2,3着が評価下位艇同士のペア」を一度も生成できていなかった問題への対応）
-  buildLongshotPartners(axis,2).forEach(([a,b2c,c2c])=>{
+  buildLongshotPartners(axis,secondCandCount,thirdCandCount).forEach(([a,b2c,c2c])=>{
     addPick(a,b2c,c2c,'押さえ','osae',`${axis}軸・評価下位の${b2c}/${c2c}が絡む一発`);
   });
 
@@ -2709,11 +2745,11 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
         `【差し】${sb.no}号艇${sb.name}差し・1号艇3着残り（展開${i+1}）`);
     }
     // 2着・3着のスワップ候補（sb.no基準でp2/p3を算出し直し、決め打ちで拾えない入れ替わりを補う）
-    build23Variants(sb.no,2).forEach(([a,b2c,c2c])=>{
+    build23Variants(sb.no,secondCandCount,thirdCandCount).forEach(([a,b2c,c2c])=>{
       addPick(a,b2c,c2c,'差し','sashi',`【差し】${sb.no}号艇1着・2着${b2c}/3着${c2c}のスワップ候補`);
     });
     // 波乱パートナー（評価の低い艇同士のペアも候補に加える）
-    buildLongshotPartners(sb.no,2).forEach(([a,b2c,c2c])=>{
+    buildLongshotPartners(sb.no,secondCandCount,thirdCandCount).forEach(([a,b2c,c2c])=>{
       addPick(a,b2c,c2c,'差し','sashi',`【差し・波乱】${sb.no}号艇1着・評価下位の${b2c}/${c2c}が絡む一発`);
     });
   });
@@ -2728,11 +2764,11 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
       addPick(mb.no, b1, in1no, 'まくり','maki',
         `【まくり】${mb.no}号艇まくり・1号艇3着残り（展開${i+1}）`);
     }
-    build23Variants(mb.no,2).forEach(([a,b2c,c2c])=>{
+    build23Variants(mb.no,secondCandCount,thirdCandCount).forEach(([a,b2c,c2c])=>{
       addPick(a,b2c,c2c,'まくり','maki',`【まくり】${mb.no}号艇1着・2着${b2c}/3着${c2c}のスワップ候補`);
     });
     // 波乱パートナー：評価の低い艇が2・3着に紛れ込むパターンも候補に加える（まくり1着＋評価下位艇の実例が多いため）
-    buildLongshotPartners(mb.no,2).forEach(([a,b2c,c2c])=>{
+    buildLongshotPartners(mb.no,secondCandCount,thirdCandCount).forEach(([a,b2c,c2c])=>{
       addPick(a,b2c,c2c,'まくり','maki',`【まくり・波乱】${mb.no}号艇1着・評価下位の${b2c}/${c2c}が絡む一発`);
     });
   });
@@ -2747,7 +2783,7 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
       addPick(mb.no, b1, in1no, 'まくり差し','makisashi',
         `【まくり差し】${mb.no}号艇の台頭パターン（展開${i+1}）`);
     }
-    build23Variants(mb.no,2).forEach(([a,b2c,c2c])=>{
+    build23Variants(mb.no,secondCandCount,thirdCandCount).forEach(([a,b2c,c2c])=>{
       addPick(a,b2c,c2c,'まくり差し','makisashi',`【まくり差し】${mb.no}号艇1着・2着${b2c}/3着${c2c}のスワップ候補`);
     });
   });
@@ -2765,12 +2801,12 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
       addPick(ms.no, b1, in1no, '穴','ana',
         `【穴・高配当】${ms.no}号艇軸の別展開・1号艇3着`);
       // 2着・3着のスワップ候補（ms.no基準）
-      build23Variants(ms.no,2).forEach(([a,b2c,c2c])=>{
+      build23Variants(ms.no,secondCandCount,thirdCandCount).forEach(([a,b2c,c2c])=>{
         const hasIn1=a===1||b2c===1||c2c===1;
         addPick(a,b2c,c2c,'穴','ana',`【穴・高配当】${ms.no}号艇1着・2着${b2c}/3着${c2c}のスワップ候補`,!hasIn1);
       });
       // 波乱パートナー（穴は評価の低い艇が絡んでこそ高配当になるカテゴリのため必須）
-      buildLongshotPartners(ms.no,2).forEach(([a,b2c,c2c])=>{
+      buildLongshotPartners(ms.no,secondCandCount,thirdCandCount).forEach(([a,b2c,c2c])=>{
         const hasIn1=a===1||b2c===1||c2c===1;
         addPick(a,b2c,c2c,'穴','ana',`【穴・波乱】${ms.no}号艇1着・評価下位の${b2c}/${c2c}が絡む一発`,!hasIn1);
       });
@@ -2780,11 +2816,11 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
       // 大穴のみ1号艇なしを許可（真の波乱パターンとして候補に加える。採用するかはスコア次第）
       addPick(bigHole.no, b1, b2||axis, '穴','ana', `【大穴・波乱】${bigHole.no}号艇まくりで1号艇も飛ぶ一発逆転`, true);
       // 大穴も2着・3着のスワップ候補を生成（1号艇なしでも許可＝真の波乱パターンの網羅）
-      build23Variants(bigHole.no,2).forEach(([a,b2c,c2c])=>{
+      build23Variants(bigHole.no,secondCandCount,thirdCandCount).forEach(([a,b2c,c2c])=>{
         addPick(a,b2c,c2c,'穴','ana',`【大穴・波乱】${bigHole.no}号艇1着・2着${b2c}/3着${c2c}のスワップ候補`,true);
       });
       // 大穴の波乱パートナー（評価下位艇同士のペアも許可・1号艇なしOK）
-      buildLongshotPartners(bigHole.no,2).forEach(([a,b2c,c2c])=>{
+      buildLongshotPartners(bigHole.no,secondCandCount,thirdCandCount).forEach(([a,b2c,c2c])=>{
         addPick(a,b2c,c2c,'穴','ana',`【大穴・波乱】${bigHole.no}号艇1着・評価下位の${b2c}/${c2c}が絡む一発`,true);
       });
     }
@@ -2805,7 +2841,7 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
       }
       if(a1){
         // ここもスワップ候補を生成（1号艇抜きの決着パターンを広く拾う）
-        build23Variants(a1,2).forEach(([a,b2c,c2c])=>{
+        build23Variants(a1,secondCandCount,thirdCandCount).forEach(([a,b2c,c2c])=>{
           addPick(a,b2c,c2c,'穴','ana',`【拮抗節・波乱】${a1}号艇1着・2着${b2c}/3着${c2c}のスワップ候補`,true);
         });
       }
@@ -2847,12 +2883,26 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
     }
   }
 
-  const totalPt=race.total||10;
-  const scored=result.map(p=>({
-    ...p,
-    prob: triProb(p.boats[0],p.boats[1],p.boats[2],placeP,entries),
-    score: triProb(p.boats[0],p.boats[1],p.boats[2],placeP,entries) * categoryStrength(p.cat)
-  }));
+  // 最終買い目数は最大15点（18点・20点は復活させない）
+  const totalPt=Math.min(15, race.total||10);
+
+  // 穴の「配当妙味」：的中確率が高いだけの低配当買い目ばかりにならないよう、
+  // 穴候補にだけ、圧縮(log)した小さな加点を与える。
+  //  ・成立可能性の下限(prob>=0.004)を満たさない超大穴には加点しない（「高配当だから買う」にしない）
+  //  ・想定配当は自モデルの確率から逆算した値で実オッズではないため、上限(300倍)を設けて偏りを抑える
+  const valueBoost=(cat,prob)=>{
+    if(cat!=='ana'||prob<0.004) return 1;
+    const odds=Math.min(300,0.75/prob);
+    return 1+0.12*Math.log1p(odds/30);
+  };
+  const scored=result.map(p=>{
+    const prob=triProb(p.boats[0],p.boats[1],p.boats[2],placeP,entries);
+    return {
+      ...p,
+      prob,
+      score: prob * categoryStrength(p.cat) * valueBoost(p.cat,prob)
+    };
+  });
   scored.sort((x,y)=>y.score-x.score);
 
   // ━━ おすすめ点数の算出 ━━
@@ -2886,6 +2936,25 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
     if(p===mainTop) continue;
     finalResult.push(p);
   }
+
+  // 高配当の可能性を残すための「穴枠」の最低保証：
+  // 点数が8点以上なら1点、12点以上なら2点までは、成立可能性(prob>=0.003)のある穴候補を確保する。
+  // 確率の高い買い目ばかりで埋まってしまうのを防ぐが、成立可能性が低すぎる穴は入れない。
+  const minAna=totalPt>=12?2:totalPt>=8?1:0;
+  if(minAna>0){
+    let anaIn=finalResult.filter(p=>p.cat==='ana').length;
+    const anaPool=scored.filter(p=>p.cat==='ana'&&p.prob>=0.003&&!finalResult.includes(p));
+    while(anaIn<minAna&&anaPool.length>0){
+      const add=anaPool.shift();
+      let idx=-1;
+      for(let k=finalResult.length-1;k>=0;k--){
+        if(finalResult[k]!==mainTop&&finalResult[k].cat!=='ana'){ idx=k; break; }
+      }
+      if(idx<0) break;
+      finalResult[idx]=add;
+      anaIn++;
+    }
+  }
   const finalSeen=new Set(finalResult.map(p=>p.boats.join('-')));
 
   // 指定点数に満たない場合は期待値順で補完（1号艇絡みを優先、最後の1枠のみ自由枠）
@@ -2907,8 +2976,11 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
     }
     all.sort((x,y)=>triProb(y.boats[0],y.boats[1],y.boats[2],placeP,entries)-triProb(x.boats[0],x.boats[1],x.boats[2],placeP,entries));
     allFree.sort((x,y)=>triProb(y.boats[0],y.boats[1],y.boats[2],placeP,entries)-triProb(x.boats[0],x.boats[1],x.boats[2],placeP,entries));
+    // 補完は的中確率に下限(0.4%)を設ける：候補が少ないレースで、無理に点数だけ埋めて
+    // 実質的に当たらない買い目を増やさない（買い目が指定点数より少なくなることを許容する）
     for(const p of all){
       if(finalResult.length>=totalPt) break;
+      if(triProb(p.boats[0],p.boats[1],p.boats[2],placeP,entries)<0.004) break;
       const key=p.boats.join('-');
       if(!finalSeen.has(key)){finalSeen.add(key);finalResult.push(p);}
     }
@@ -2916,7 +2988,7 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
     if(finalResult.length<totalPt&&allFree.length>0){
       const p=allFree[0];
       const key=p.boats.join('-');
-      if(!finalSeen.has(key)){finalSeen.add(key);finalResult.push(p);}
+      if(!finalSeen.has(key)&&triProb(p.boats[0],p.boats[1],p.boats[2],placeP,entries)>=0.003){finalSeen.add(key);finalResult.push(p);}
     }
   }
   // 超過分はすでにscore順に並んでいるため、末尾を切り詰めるだけでよい
@@ -2931,49 +3003,60 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   APP._axis=axis;
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // ━━ 二連単モード ━━
-  // 3連単と同じ「1着候補の絞り込み(winnerCandidates)→軸→カテゴリ」の土台をそのまま流用し、
-  // 3着の不確実性を丸ごとカットすることで的中率を上げる狙い。
-  // カテゴリ強度(categoryStrength)も3連単と同じ関数を再利用し、評価基準を一致させる。
+  // ━━ 優先度(本線/押さえ/穴)と理由(逃げ/差し/まくり/まくり差し/抜き)を分離する ━━
+  // 今までは1つのラベル（本線/押さえ/差し/まくり/まくり差し/穴/抜き）が
+  // 「どれだけ有力か」と「なぜ成立すると考えたか」を兼ねていた。
+  // ここでは両者を切り離し、priority＝最終順位に基づく優先度、reason＝生成カテゴリに基づく理由、
+  // という2つのフィールドとして付与する（既存のlabel/catはそのまま残し、表示用に追加する）。
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  let finalResult2=[];
-  if(total2>0){
-    function catFor2(no){
-      if(no===axis) return 'osae';
-      if(no===1) return 'osae'; // 1号艇は軸でなくても「穴」には該当しない（差し・まくり対象でもないため素通りしていたバグ）
-      if(sashiCand.some(e=>e.no===no)) return 'sashi';
-      if(makiCand.some(e=>e.no===no)) return 'maki';
-      return 'ana';
-    }
-    const catLabelMap2={osae:axis===1?'本命':'本線',sashi:'差し',maki:'まくり',ana:'穴'};
-    const seen2=new Set();
-    const cand2=[];
-    winnerCandidates.forEach(no=>{
-      const partners=[...entries].filter(e=>e.no!==no)
-        .sort((a,b)=>(placeP[b.no]?.p2||0)-(placeP[a.no]?.p2||0))
-        .slice(0,4); // 2着候補上位4艇まで（1号艇なしも許容＝2連単は3連単より波乱を拾いやすくてよい）
-      partners.forEach(p=>{
-        const key=`${no}-${p.no}`;
-        if(seen2.has(key)) return;
-        seen2.add(key);
-        const cat=catFor2(no);
-        const score=duoProb(no,p.no,placeP,entries)*categoryStrength(cat);
-        cand2.push({boats:[no,p.no], label:catLabelMap2[cat]||cat, cat, score});
-      });
-    });
-    cand2.sort((a,b)=>b.score-a.score);
-    // 軸の最上位ペアは最低保証（3連単と同じ考え方）
-    const top2Main=cand2.find(p=>p.boats[0]===axis);
-    if(top2Main) finalResult2.push(top2Main);
-    for(const p of cand2){
-      if(finalResult2.length>=total2) break;
-      if(p===top2Main) continue;
-      finalResult2.push(p);
-    }
-    finalResult2=finalResult2.slice(0,total2);
+  function reasonFromKimarite(km){
+    if(!km) return '逃げ';
+    if(km.includes('まくり差し')) return 'まくり差し';
+    if(km.includes('まくり')) return 'まくり';
+    if(km.includes('差し')) return '差し';
+    if(km.includes('逃げ')) return '逃げ';
+    return km;
   }
+  function reasonFor(p){
+    switch(p.cat){
+      case 'sashi':     return '差し';
+      case 'maki':      return 'まくり';
+      case 'makisashi': return 'まくり差し';
+      case 'nuki':      return '抜き';
+      case 'main':
+      case 'osae':      return reasonFromKimarite(kimarite);
+      case 'ana': {
+        const no=p.boats[0];
+        if(no===axis) return reasonFromKimarite(kimarite);
+        if(makiSashiCand.some(e=>e.no===no)) return 'まくり差し';
+        if(sashiCand.some(e=>e.no===no)) return '差し';
+        if(makiCand.some(e=>e.no===no)) return 'まくり';
+        return '波乱';
+      }
+      default: return p.label||'';
+    }
+  }
+  // 優先度の判定（相対だけでなく絶対的な的中確率も見る。相対基準だけだと、上位2点が突出した
+  // レースで残りがほぼ全部「穴」になってしまうため）：
+  //  ・穴    ＝ 的中確率1.5%未満の買い目、または生成カテゴリがanaで的中確率6%未満のもの
+  //  ・本線  ＝ 最有力に近い的中確率(50%以上)のもの。ただし全体の約25%までに制限
+  //  ・押さえ＝ それ以外（的中確率は十分あるが本線ほどではないもの）
+  const topProb=finalResult[0]?.prob||0;
+  const honsenMax=Math.max(1,Math.round(finalResult.length*0.25));
+  let honsenCount=0;
+  finalResult.forEach((p,i)=>{
+    p.reason=reasonFor(p);
+    const pr=(typeof p.prob==='number')?p.prob:triProb(p.boats[0],p.boats[1],p.boats[2],placeP,entries);
+    if(pr<0.015||(p.cat==='ana'&&pr<0.06)){
+      p.priority='穴';
+    } else if(honsenCount<honsenMax&&(i===0||(topProb>0&&pr>=topProb*0.50))){
+      p.priority='本線'; honsenCount++;
+    } else {
+      p.priority='押さえ';
+    }
+  });
 
-  return {picks3:finalResult, picks2:finalResult2, recommendedPoints};
+  return {picks3:finalResult, recommendedPoints};
 }
 
 // ── プロ思考の予想理由生成 ────────────────────────────
@@ -3226,7 +3309,7 @@ function computeCore(){
   const W=getWeights();
 
   // 展示データ
-  const withET=entries.filter(e=>e.exhibitTime>0).sort((a,b)=>b.exhibitTime-a.exhibitTime);
+  const withET=entries.filter(e=>e.exhibitTime>0).sort((a,b)=>a.exhibitTime-b.exhibitTime);
   const etRankMap={};
   withET.forEach((e,i)=>{ etRankMap[e.no]=i+1; });
 
@@ -3294,8 +3377,7 @@ function previewRecommendedPoints(){
   if(!APP.entries.length||!APP.selectedVenue) return;
   try{
     const core=computeCore();
-    const total2=0; // プレビューでは二連単は計算しない（軽量化）
-    const rawPicksBoth=buildPicksFromExpand(core.placeP,core.expand,core.entries,core.raceClass,core.makiSashiCands,core.canHole,core.etRankMap,total2);
+    const rawPicksBoth=buildPicksFromExpand(core.placeP,core.expand,core.entries,core.raceClass,core.makiSashiCands,core.canHole,core.etRankMap);
     const rec=rawPicksBoth.recommendedPoints;
     APP._recommendedPoints=rec;
     const el=document.getElementById('exhibitManualStatusRecPreview');
@@ -3309,8 +3391,7 @@ function runPred(){
   const {v,vc,wx,entries,W,withET,etRankMap,chaosScore,chaosLines,raceClass,expand,placeP,makiSashiCands,holeCandEntries,canHole}=computeCore();
 
   // ── STEP7: 展開から買い目生成 ─────────────────────
-  const total2=APP.enable2RenTan?(APP.predPoints2||6):0;
-  const rawPicksBoth=buildPicksFromExpand(placeP,expand,entries,raceClass,makiSashiCands,canHole,etRankMap,total2);
+  const rawPicksBoth=buildPicksFromExpand(placeP,expand,entries,raceClass,makiSashiCands,canHole,etRankMap);
   const rawPicks=rawPicksBoth.picks3;
   APP._recommendedPoints=rawPicksBoth.recommendedPoints;
   const scenarios=buildScenarios(placeP,expand,entries,etRankMap,withET,vc,wx);
@@ -3333,27 +3414,12 @@ function runPred(){
   // 例: 1-2-3,1-3-2,1-6-4... → 2-1-4,2-4-1... → 3-1-4... → 6-1-4...
   result.sort((a,b)=>a.boats[0]-b.boats[0]||b.ev-a.ev);
 
-  // ── STEP5b: 期待値計算・最終リスト（二連単、有効時のみ）────
-  let result2=[];
-  if(total2>0){
-    result2=rawPicksBoth.picks2.map(p=>{
-      const [a,b]=p.boats;
-      const prob=duoProb(a,b,placeP,entries);
-      const odds=estOdds2(a,b,placeP,entries);
-      const ev=parseFloat((prob*odds).toFixed(3));
-      const conf=prob>=0.20?'A':prob>=0.10?'B':prob>=0.05?'C':prob>=0.02?'D':'E';
-      const confC={'A':'var(--teal)','B':'var(--blue)','C':'var(--gold)','D':'var(--orange)','E':'var(--red)'}[conf];
-      return {...p,type:'二連単',prob,odds,ev,conf,confC};
-    });
-    result2.sort((a,b)=>a.boats[0]-b.boats[0]||b.ev-a.ev);
-  }
-
-  renderPredV5(result,raceClass,expand,chaosScore,chaosLines,placeP,W,result2);
-  savePredHistory(result,result2);
+  renderPredV5(result,raceClass,expand,chaosScore,chaosLines,placeP,W);
+  savePredHistory(result);
 }
 
 // ── 予想表示 v5 ──────────────────────────────────
-function renderPredV5(picks,raceClass,expand,chaosScore,chaosLines,placeP,W,picks2){
+function renderPredV5(picks,raceClass,expand,chaosScore,chaosLines,placeP,W){
   const v=APP.selectedVenue;
   const vc=VENUE_CHARS[v?v.code:'01']||{in1:54};
   const sc=expand.sc;
@@ -3383,14 +3449,18 @@ function renderPredV5(picks,raceClass,expand,chaosScore,chaosLines,placeP,W,pick
   // 重み表示
   const adjBadge=W.adjustCount>0?`<span style="font-size:.62rem;padding:1px 5px;border-radius:3px;background:var(--teal)20;color:var(--teal);">自動調整${W.adjustCount}回済</span>`:'';
 
-  // 実際に採用された買い目のカテゴリ内訳（点数は固定配分ではなく、動的スコアリングの結果）
-  const catLabel={main:'本線',osae:'押さえ',sashi:'差し',maki:'まくり',makisashi:'まくり差し',ana:'穴',nuki:'抜き'};
-  const catCount={main:0,osae:0,sashi:0,maki:0,makisashi:0,ana:0,nuki:0};
-  picks.forEach(p=>{ if(catCount[p.cat]!==undefined) catCount[p.cat]++; });
-  const compositionText=Object.keys(catLabel)
-    .filter(k=>catCount[k]>0)
-    .map(k=>`${catLabel[k]}${catCount[k]}点`)
-    .join('・');
+  // 実際に採用された買い目の内訳（点数は固定配分ではなく、動的スコアリングの結果）
+  // 優先度(本線/押さえ/穴)と、成立理由(逃げ/差し/まくり/まくり差し/抜き等)を分けて集計する
+  const prioCount={本線:0,押さえ:0,穴:0};
+  const reasonCount={};
+  picks.forEach(p=>{
+    const pr=p.priority||p.label;
+    if(prioCount[pr]!==undefined) prioCount[pr]++;
+    if(p.reason) reasonCount[p.reason]=(reasonCount[p.reason]||0)+1;
+  });
+  const prioText=Object.keys(prioCount).filter(k=>prioCount[k]>0).map(k=>`${k}${prioCount[k]}点`).join('・');
+  const reasonText=Object.keys(reasonCount).map(k=>`${k}${reasonCount[k]}`).join('・');
+  const compositionText=prioText+(reasonText?`<span style="font-size:.68rem;color:var(--text3);">　（展開：${reasonText}）</span>`:'');
 
   // おすすめ点数（動的スコアリングの結果から算出。上位6点の効率を基準に、
   // 点数を広げても40%以上の効率を保てる範囲までを推奨する）
@@ -3438,7 +3508,10 @@ function renderPredV5(picks,raceClass,expand,chaosScore,chaosLines,placeP,W,pick
   picks.forEach((p,i)=>{
     const [a,b,c]=p.boats;
     const boats=`<span class="bn bn${a}">${a}</span><span class="pred-arr">▶</span><span class="bn bn${b}">${b}</span><span class="pred-arr">▶</span><span class="bn bn${c}">${c}</span>`;
-    const lc=labelC[p.label]||'var(--text2)';
+    // 優先度(本線/押さえ/穴)＝メインのバッジ、理由(逃げ/差し/まくり等)＝補足のバッジとして分けて表示
+    const prio=p.priority||p.label;
+    const lc=labelC[prio]||'var(--text2)';
+    const rc=labelC[p.reason]||'var(--text3)';
     const evc=p.ev>=2.0?'var(--teal)':p.ev>=1.0?'var(--blue)':'var(--text3)';
     const reasonHtml=(p.reasons||[]).map(r=>`<span>・${r}</span>`).join('<br>');
     const storyHtml=p.story?`<div style="font-size:.74rem;color:var(--text1,#ddd);line-height:1.75;padding:6px 8px;background:var(--bg3);border-radius:4px;margin-bottom:5px;font-style:italic;">${p.story}</div>`:'';
@@ -3446,7 +3519,8 @@ function renderPredV5(picks,raceClass,expand,chaosScore,chaosLines,placeP,W,pick
       <span class="pred-rank ${i===0?'r1':i===1?'r2':i===2?'r3':''}">${rkMk(i)}</span>
       <div class="pred-boats">${boats}</div>
       <div style="flex:1;margin-left:4px;">
-        <span style="font-size:.62rem;padding:1px 5px;border-radius:3px;background:${lc}20;color:${lc};font-weight:700;">${p.label}</span>
+        <span style="font-size:.66rem;padding:1px 6px;border-radius:3px;background:${lc}20;color:${lc};font-weight:700;">${prio}</span>
+        ${p.reason?`<span style="font-size:.62rem;padding:1px 5px;border-radius:3px;background:${rc}15;color:${rc};font-weight:600;margin-left:3px;">${p.reason}</span>`:''}
         <span style="font-size:.62rem;padding:1px 5px;border-radius:3px;background:${(p.confC||'#888')}20;color:${p.confC||'#888'};font-weight:700;margin-left:3px;">信頼${p.conf}</span>
       </div>
       <div class="pred-meta">
@@ -3460,38 +3534,10 @@ function renderPredV5(picks,raceClass,expand,chaosScore,chaosLines,placeP,W,pick
   });
   html+=`</div>`;
 
-  // ── 二連単セクション（有効時のみ）─────────────────
-  if(picks2&&picks2.length){
-    html+=`<div style="margin-top:1rem;padding-top:.75rem;border-top:2px dashed var(--border);">
-      <div class="card-title" style="margin-bottom:.5rem;">二連単予想（${picks2.length}点）</div>
-      <div class="pred-list">`;
-    picks2.forEach((p,i)=>{
-      const [a,b]=p.boats;
-      const boats2=`<span class="bn bn${a}">${a}</span><span class="pred-arr">▶</span><span class="bn bn${b}">${b}</span>`;
-      const lc2=labelC[p.label]||'var(--text2)';
-      const evc2=p.ev>=2.0?'var(--teal)':p.ev>=1.0?'var(--blue)':'var(--text3)';
-      html+=`<div class="pred-card ${rankCls[i]||''}">
-        <span class="pred-rank ${i===0?'r1':i===1?'r2':i===2?'r3':''}">${rkMk(i)}</span>
-        <div class="pred-boats">${boats2}</div>
-        <div style="flex:1;margin-left:4px;">
-          <span style="font-size:.62rem;padding:1px 5px;border-radius:3px;background:${lc2}20;color:${lc2};font-weight:700;">${p.label}</span>
-          <span style="font-size:.62rem;padding:1px 5px;border-radius:3px;background:${(p.confC||'#888')}20;color:${p.confC||'#888'};font-weight:700;margin-left:3px;">信頼${p.conf}</span>
-        </div>
-        <div class="pred-meta">
-          <div class="pred-conf">${(p.prob*100).toFixed(1)}%</div>
-          <div style="font-size:.7rem;color:var(--text2);">推定${p.odds}倍</div>
-          <div class="pred-ev" style="color:${evc2};font-weight:700;">EV ${p.ev}</div>
-          <div class="cbar"><div class="cfill" style="width:${Math.min(100,p.prob*150)}%;"></div></div>
-        </div>
-      </div>`;
-    });
-    html+=`</div></div>`;
-  }
-
   html+=`
   <div style="margin-top:.75rem;padding:.65rem 1rem;background:var(--bg3);border:1px solid var(--border);border-radius:6px;font-size:.72rem;color:var(--text2);line-height:1.8;">
     ⚡ <b>適応型予想エンジン v5</b>: 展開シミュレーション＋STEP4優先順位重み付け＋自己学習対応<br>
-    📊 合計投資額 ${picks.length*100}円想定${picks2&&picks2.length?`（＋二連単${picks2.length*100}円想定）`:''}　⚠️ 投票は自己責任で（20歳未満禁止）
+    📊 合計投資額 ${picks.length*100}円想定　⚠️ 投票は自己責任で（20歳未満禁止）
   </div>`;
   document.getElementById('predOutput').innerHTML=html;
 }
@@ -3570,7 +3616,7 @@ function recalcAllInvest(cfg){
 // ===================================================
 // 履歴
 // ===================================================
-function savePredHistory(picks, picks2){
+function savePredHistory(picks){
   const v=APP.selectedVenue;
   const cfg=getPurchaseConfig();
   const item={
@@ -3584,6 +3630,7 @@ function savePredHistory(picks, picks2){
     chaoticLevel:APP.chaoticLevel||'中',
     picks:picks.map(p=>({
       boats:p.boats,type:p.type,label:p.label,
+      priority:p.priority,reason:p.reason,
       prob:p.prob,odds:p.odds,ev:p.ev,conf:p.conf
     })),
     result:null,
@@ -3591,14 +3638,7 @@ function savePredHistory(picks, picks2){
     invest:picks.length*cfg.unitAmt, // 設定から自動計算
     payout:0,
     hit:null,
-    // ── 二連単（有効時のみ、既存の三連単データ構造とは独立させる）──
-    picks2:(picks2&&picks2.length)?picks2.map(p=>({
-      boats:p.boats,type:p.type,label:p.label,
-      prob:p.prob,odds:p.odds,ev:p.ev,conf:p.conf
-    })):[],
-    invest2:(picks2&&picks2.length)?picks2.length*cfg.unitAmt:0,
-    payout2:0,
-    hit2:null,
+    exhibitFixed:true, // 展示タイムの向き修正後に作られた履歴（学習に使える）
   };
   const hist=getHistory();
   hist.unshift(item);
@@ -3653,13 +3693,6 @@ function renderHistory(){
     // 投資額: 履歴に保存済みの値を使う（設定変更時は自動更新済み）
     const invest=h.invest||(h.picks?.length||cfg.points)*cfg.unitAmt;
     const profit=(h.payout||0)-invest;
-    // ── 二連単（保存されている場合のみ表示）──
-    const has2=h.picks2&&h.picks2.length>0;
-    const picks2Html=has2?(h.picks2||[]).map(p=>`<span style="font-size:.7rem;background:var(--bg4);padding:2px 5px;border-radius:3px;">${p.boats.join('-')}</span>`).join(' '):'';
-    const invest2=h.invest2||0;
-    const profit2=(h.payout2||0)-invest2;
-    const stCls2=h.hit2===true?'badge-hit':h.hit2===false?'badge-miss':'badge-pend';
-    const stTxt2=h.hit2===true?'🎯 的中':h.hit2===false?'❌ ハズレ':'未確認';
     return `<div class="hist-item">
       <div class="flex justify-between align-center mb1">
         <div><span style="font-weight:600;">${h.venue} ${h.race}R</span> <span class="text-xs text-muted">${dtStr}</span></div>
@@ -3679,21 +3712,6 @@ function renderHistory(){
         ${h.resultOrder?`着順:${h.resultOrder}　`:''}払戻:${(h.payout||0).toLocaleString()}円　
         損益:<b style="color:${profit>=0?'var(--teal)':'var(--red)'}">${profit>=0?'+':''}${profit.toLocaleString()}円</b>
       </div>`:''}
-      ${has2?`<div style="margin-top:.5rem;padding-top:.5rem;border-top:1px dashed var(--border);">
-        <div class="flex justify-between align-center mb1">
-          <span class="text-xs" style="font-weight:600;">二連単</span>
-          <span class="badge ${stCls2}">${stTxt2}</span>
-        </div>
-        <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:.5rem;">${picks2Html}</div>
-        <div class="flex gap1 align-center" style="flex-wrap:wrap;">
-          <input type="number" placeholder="二連単払戻(円)" style="width:120px;flex-shrink:0;" id="pay2-${h.id}" value="${h.payout2||''}">
-          <span class="text-xs text-muted">投資: ${invest2.toLocaleString()}円</span>
-        </div>
-        ${h.hit2!==null||h.payout2>0?`<div class="text-xs mt1" style="color:${h.hit2===true?'var(--teal)':h.hit2===false?'var(--red)':'var(--text2)'};">
-          払戻:${(h.payout2||0).toLocaleString()}円　
-          損益:<b style="color:${profit2>=0?'var(--teal)':'var(--red)'}">${profit2>=0?'+':''}${profit2.toLocaleString()}円</b>
-        </div>`:''}
-      </div>`:''}
       ${h.selfAnalysis?renderSelfAnalysis(h.selfAnalysis):''}
     </div>`;
   }).join('');
@@ -3706,16 +3724,12 @@ function updateResult(id){
   const orderRaw=(document.getElementById(`ord-${id}`)?.value||'').trim();
   const payRaw=document.getElementById(`pay-${id}`)?.value;
   const pay=payRaw===''||payRaw==null?0:parseInt(payRaw)||0;
-  const pay2Raw=document.getElementById(`pay2-${id}`)?.value;
-  const pay2=pay2Raw===''||pay2Raw==null?0:parseInt(pay2Raw)||0;
 
   hist[i].resultOrder=orderRaw;
   hist[i].payout=pay;
-  if(hist[i].picks2&&hist[i].picks2.length) hist[i].payout2=pay2;
 
   if(!orderRaw){
     hist[i].hit=null;
-    hist[i].hit2=null;
     hist[i].selfAnalysis=null;
   } else {
     const order=orderRaw.split(/[-,\s]+/).map(n=>parseInt(n)).filter(n=>!isNaN(n));
@@ -3729,15 +3743,6 @@ function updateResult(id){
         p.boats[0]===order[0]&&p.boats[1]===order[1]&&p.boats[2]===order[2]
       );
       hist[i].hit=isHit;
-
-      // 二連単の的中判定（同じ着順入力の1・2着部分だけを見る）
-      if(hist[i].picks2&&hist[i].picks2.length){
-        const isHit2=hist[i].picks2.some(p=>
-          p.boats&&p.boats.length===2&&
-          p.boats[0]===order[0]&&p.boats[1]===order[1]
-        );
-        hist[i].hit2=isHit2;
-      }
 
       // 自己分析をここで実行（histは既に更新済みのものを渡す）
       try{

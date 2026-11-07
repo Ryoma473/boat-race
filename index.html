@@ -109,6 +109,21 @@ label{font-size:.72rem;color:var(--text2);display:block;margin-bottom:3px;}
 .stat-val{font-size:1.3rem;font-weight:700;}
 .stat-lbl{font-size:.68rem;color:var(--text2);margin-top:2px;}
 .stat-pos{color:var(--teal);}.stat-neg{color:var(--red);}.stat-neu{color:var(--text);}
+.profit-summary{border:2px solid var(--border);border-radius:14px;padding:1.1rem;margin-bottom:.9rem;background:var(--bg3);box-shadow:0 5px 18px #0002;position:relative;overflow:hidden;}
+.profit-summary.is-positive{border-color:var(--teal);background:linear-gradient(135deg,#0d302b 0%,var(--bg3) 72%);}
+.profit-summary.is-negative{border-color:var(--red);background:linear-gradient(135deg,#351b20 0%,var(--bg3) 72%);}
+.profit-summary.is-even{border-color:var(--border);}
+.profit-summary .profit-topline{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;}
+.profit-summary .profit-heading{font-size:.78rem;color:var(--text2);font-weight:700;}
+.profit-summary .profit-status{font-size:.72rem;font-weight:800;letter-spacing:.04em;padding:.32rem .65rem;border-radius:999px;border:1px solid currentColor;}
+.profit-summary .profit-amount{font-size:clamp(2.2rem,9vw,3.2rem);font-weight:900;letter-spacing:-.04em;line-height:1.15;margin:.65rem 0 .85rem;font-variant-numeric:tabular-nums;}
+.profit-summary .profit-breakdown{display:grid;grid-template-columns:1fr auto 1fr;gap:.45rem;align-items:center;padding:.75rem 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);}
+.profit-summary .profit-metric{min-width:0;}
+.profit-summary .profit-metric-label{font-size:.66rem;color:var(--text2);margin-bottom:.2rem;}
+.profit-summary .profit-metric-value{font-size:clamp(.9rem,3.8vw,1.15rem);font-weight:800;font-variant-numeric:tabular-nums;overflow-wrap:anywhere;}
+.profit-summary .profit-minus{font-size:1.2rem;color:var(--text2);font-weight:700;}
+.profit-summary .profit-note{font-size:.68rem;color:var(--text3);margin-top:.65rem;line-height:1.5;}
+@media(min-width:500px){.profit-summary{padding:1.35rem}.profit-summary .profit-amount{font-size:3.2rem}}
 .hist-item{background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:.7rem;margin-bottom:7px;font-size:.78rem;}
 .badge{display:inline-flex;align-items:center;padding:2px 6px;border-radius:100px;font-size:.68rem;font-weight:600;}
 .badge-hit{background:#39d35320;border:1px solid var(--teal);color:var(--teal);}
@@ -285,19 +300,18 @@ label{font-size:.72rem;color:var(--text2);display:block;margin-bottom:3px;}
     </div>
     <div class="tc" id="tc-pred">
       <div class="card" style="background:var(--bg3);margin-bottom:.75rem;">
-        <div class="card-title">予想点数を選択（三連単）</div>
+        <div class="card-title">三連単の予想点数を選択</div>
         <div id="pointSelectRow" style="display:flex;gap:.4rem;flex-wrap:wrap;">
+          <button class="btn pt-btn" data-pt="4"  onclick="selectPredPoints(4,this)"  style="flex:1;min-width:60px;padding:.5rem;">4点</button>
           <button class="btn pt-btn" data-pt="6"  onclick="selectPredPoints(6,this)"  style="flex:1;min-width:60px;padding:.5rem;">6点</button>
           <button class="btn pt-btn" data-pt="8"  onclick="selectPredPoints(8,this)"  style="flex:1;min-width:60px;padding:.5rem;">8点</button>
           <button class="btn pt-btn active" data-pt="10" onclick="selectPredPoints(10,this)" style="flex:1;min-width:60px;padding:.5rem;">10点</button>
-          <button class="btn pt-btn" data-pt="12" onclick="selectPredPoints(12,this)" style="flex:1;min-width:60px;padding:.5rem;">12点</button>
-          <button class="btn pt-btn" data-pt="15" onclick="selectPredPoints(15,this)" style="flex:1;min-width:60px;padding:.5rem;">15点</button>
         </div>
       </div>
       <button class="btn btn-primary" id="predBtn" onclick="generatePrediction()" style="width:100%;padding:.7rem;font-size:.88rem;margin-bottom:.75rem;">
-        ⚡ <span id="predBtnLabel">10</span>点予想を生成（三連単・期待値算出）
+        ⚡ <span id="predBtnLabel">10</span>点予想を生成（三連単＋二連単6点）
       </button>
-      <div id="predLoading" class="loading-box" style="display:none;"><div class="spinner"></div><div style="margin-top:.5rem;">スコア計算・期待値算出中...</div></div>
+      <div id="predLoading" class="loading-box" style="display:none;"><div class="spinner"></div><div style="margin-top:.5rem;">スコア計算・モデル評価中...</div></div>
       <div id="predOutput"></div>
     </div>
   </div>
@@ -328,10 +342,10 @@ label{font-size:.72rem;color:var(--text2);display:block;margin-bottom:3px;}
       <div>
         <label>予想点数</label>
         <select id="cfgPoints" onchange="savePurchaseConfig()">
+          <option value="4">4点</option>
+          <option value="6">6点</option>
           <option value="8">8点</option>
           <option value="10" selected>10点</option>
-          <option value="12">12点</option>
-          <option value="15">15点</option>
         </select>
       </div>
       <div>
@@ -359,7 +373,14 @@ label{font-size:.72rem;color:var(--text2);display:block;margin-bottom:3px;}
     </div>
   </div>
 
-  <!-- 自動集計サマリー -->
+  <!-- 収支を最初に大きく表示 -->
+  <div id="profitSummary" class="profit-summary" aria-live="polite"></div>
+
+  <!-- 二連単・三連単を独立集計 -->
+  <div class="card"><div class="card-title">二連単 成績（独立集計・基本6点）</div><div id="exactaStatsSummary"></div></div>
+
+  <!-- 自動集計サマリー（三連単） -->
+  <div class="card-title" style="margin-top:.75rem;">三連単 成績</div>
   <div class="stat-grid" id="statGrid"></div>
 
   <!-- グラフ -->
@@ -479,7 +500,7 @@ let APP={
   weather:{},
   scores:[],
   charts:{},
-  predPoints:10,    // 予想点数（ステップ⑤：6/8/10/15/18/20から選択）
+  predPoints:10,    // 予想点数（4/6/8/10点から選択）
 };
 
 // ===================================================
@@ -523,8 +544,11 @@ function switchTab(name){
 // ===================================================
 async function loadTodayData(){
   const stEl=document.getElementById('venueStatus');
+  APP.rawPrograms=[];
+  APP.openVenues=[];
   const ymd=getToday();
   const yyyy=ymd.slice(0,4);
+  const todayStr=`${ymd.slice(0,4)}-${ymd.slice(4,6)}-${ymd.slice(6,8)}`;
 
   // BoatraceOpenAPIは当日データを翌日公開する仕様
   // today.jsonは「今日公開されたデータ＝今日のレース出走表」として使用
@@ -554,7 +578,8 @@ async function loadTodayData(){
   // ③ 両方失敗 → LocalStorageキャッシュを使う
   if(!data){
     const cached=localStorage.getItem('brLastPrograms');
-    if(cached){
+    const cachedDate=localStorage.getItem('brLastProgramsDate');
+    if(cached && cachedDate===todayStr){
       try{
         data=JSON.parse(cached);
         console.log('[出走表] キャッシュから復元');
@@ -578,7 +603,6 @@ async function loadTodayData(){
 
   // データ取得成功 → 今日の日付と一致するか確認
   const allPrograms=Array.isArray(data)?data:(data.programs||[]);
-  const todayStr=`${ymd.slice(0,4)}-${ymd.slice(4,6)}-${ymd.slice(6,8)}`;
 
   // 今日のデータのみ抽出
   const todayData=allPrograms.filter(p=>{
@@ -593,11 +617,27 @@ async function loadTodayData(){
     localStorage.setItem('brLastProgramsDate', todayStr);
     console.log(`[出走表] 今日のデータ ${todayData.length}件`);
   } else {
-    // 今日のデータなし → 取得できたデータをそのまま使う
-    // （APIの更新が遅れている場合でも選手データ・モーター・今節成績は使える）
-    APP.rawPrograms=allPrograms;
-    console.log(`[出走表] 最新データ使用 ${allPrograms.length}件（日付: ${allPrograms[0]?.race_date||'不明'}）`);
-    stEl.innerHTML=`<span class="dot yellow"></span><span>本日 データ読込中</span>`;
+    // 今日の日付の出走表がない場合、別日付のレースを今日のデータとして表示しない。
+    // 同日キャッシュがある場合のみ利用し、なければ再試行を案内する。
+    const cachedDate=localStorage.getItem('brLastProgramsDate');
+    const cached=localStorage.getItem('brLastPrograms');
+    if(cached && cachedDate===todayStr){
+      try{
+        const cachedPrograms=JSON.parse(cached);
+        if(Array.isArray(cachedPrograms)&&cachedPrograms.length){
+          APP.rawPrograms=cachedPrograms;
+          stEl.innerHTML=`<span class="dot yellow"></span><span>本日の保存データを表示中（最新データ未取得）</span>`;
+        }
+      }catch(e){ APP.rawPrograms=[]; }
+    }
+    if(!APP.rawPrograms.length){
+      stEl.innerHTML=`<span class="dot red"></span><span>本日の出走表はまだ取得できません。5分後に再試行します。</span>`;
+      document.getElementById('venueGrid').innerHTML=
+        `<div class="alert alert-warn" style="grid-column:1/-1;">本日の日付と一致する出走表が見つかりません。古いレースデータを誤表示しないよう、予想を停止しました。<br><button class="btn btn-sm btn-primary mt1" onclick="loadTodayData()">今すぐ再取得</button></div>`;
+      if(APP._retryTimer) clearTimeout(APP._retryTimer);
+      APP._retryTimer=setTimeout(()=>loadTodayData(),5*60*1000);
+      return;
+    }
   }
 
   console.log(`[出走表] 合計 ${APP.rawPrograms.length}件使用`);
@@ -939,8 +979,8 @@ function applyManualExhibit(){
     statusEl.style.color='var(--gold)';
   }
 
-  // スコア再計算・出走表再描画
-  if(APP.entries.length) calcScores();
+  // スコア再計算後、スコア欄も必ず再描画（履歴保存値との不一致を防ぐ）
+  if(APP.entries.length){ calcScores(); renderScoreGrid(); }
   renderEntryTable();
   // おすすめ点数のプレビュー（予想を生成しなくても目安が見える）
   previewRecommendedPoints();
@@ -960,6 +1000,7 @@ function clearManualExhibit(){
     applyPreviewData(APP.selectedVenue, APP.selectedRace);
   }
   calcScores();
+  renderScoreGrid();
   renderEntryTable();
 }
 
@@ -989,8 +1030,8 @@ function applyManualWeather(){
   };
 
   renderWeather(APP.weather, APP.selectedVenue);
-  // スコアを再計算
-  if(APP.entries.length) calcScores();
+  // スコアを再計算し、表示中のスコア欄も更新
+  if(APP.entries.length){ calcScores(); renderScoreGrid(); }
 
   const statusEl=document.getElementById('wxManualStatus');
   statusEl.textContent=`✅ 反映済み: 風向${dir} 風速${speed}m 波高${wave}cm`;
@@ -1898,13 +1939,13 @@ function selfAnalyzeRace(histId, isHit, resultOrder, payout){
       `1着予測の${axis1st}号ではなく${winner}号が勝利→展開の読み違い`
   };
 
-  // ⑯ 期待値
+  // ⑯ モデル値（実オッズ未取得のため実期待値ではない）
   const hitPick=isHit?picks.find(p=>p.boats&&p.boats[0]===winner&&p.boats[1]===second&&p.boats[2]===third):null;
   const hitEV=hitPick?.ev||0;
   items.ev={
     mark:isHit&&hitEV>=1.5?M[5]:isHit&&hitEV>=0.8?M[4]:isHit?M[3]:M[2],
-    detail:isHit?`的中買い目の期待値: ${hitEV.toFixed(2)}（推定${hitPick?.odds||'?'}倍）`:
-      `期待値計算は完了していたが的中できず`
+    detail:isHit?`的中買い目のモデル値: ${hitEV.toFixed(2)}（推定${hitPick?.odds||'?'}倍）`:
+      `モデル評価は完了していたが的中できず`
   };
 
   // ── 総合まとめ ────────────────────────────────────
@@ -2014,6 +2055,12 @@ function calcPlaceProbs(entries, vc, wx, expand, etRankMap, withET, W){
   const sc=expand.sc;
 
   const prob={};
+  // 表示用の総合スコアを買い目確率にも穏やかに反映する。
+  // calcScores()自体は変更せず、既存の確率モデルへの補助情報としてのみ使う。
+  const displayScoreByNo = new Map((APP.scores||[]).map(s=>[Number(s.no), Number(s.total)]));
+  const displayScoreValues = entries
+    .map(e=>displayScoreByNo.get(Number(e.no)))
+    .filter(v=>Number.isFinite(v));
   const in1e=entries.find(e=>e.no===1);
   const in1etR=in1e?(etRankMap[in1e.no]||999):999;
   const in1Bad=in1e&&(in1e.motorRate<38||(withET.length>0&&in1etR===withET.length));
@@ -2185,6 +2232,10 @@ function calcPlaceProbs(entries, vc, wx, expand, etRankMap, withET, W){
     const abilityMult = Math.max(0.40, Math.min(1.80, 1 + zTotal*0.18));
     let p1score = courseScore * abilityMult * gradeK;
 
+    // 展示STが大幅に遅い艇は、インコース補正だけで1着候補に固定されないようにする。
+    // _stSevereLate は既存の展示ST入力チェックで付与されるフラグ。総合スコア自体は変更しない。
+    if(e._stSevereLate) p1score *= 0.78;
+
     // 今節好調アウト艇ボーナス（進入コースがアウトの場合）
     if(courseNo>=3&&sessAvg<=1.8) p1score*=1.20;
     if(courseNo>=3&&st<=0.14) p1score*=1.10;
@@ -2199,7 +2250,20 @@ function calcPlaceProbs(entries, vc, wx, expand, etRankMap, withET, W){
     const p2score = placeAbility * 0.75 * gradeK + courseScoreForPlace * 0.25;
     const p3score = placeAbility * 0.72 * gradeK + courseScoreForPlace * 0.28;
 
-    prob[no]={p1:Math.max(0.1,p1score), p2:Math.max(0.1,p2score), p3:Math.max(0.1,p3score), ability, zTotal};
+    // 総合スコアの標準化値を最大±12%の範囲で反映。
+    // 元の着順モデルを置き換えず、スコア内訳の総合評価をタイブレーク兼補助要素にする。
+    // スコア未計算・欠損時は倍率1.0として従来どおり動作する。
+    const displayedTotal = displayScoreByNo.get(Number(no));
+    const displayedZ = Number.isFinite(displayedTotal) && displayScoreValues.length >= 2
+      ? zscore(displayScoreValues, displayedTotal) : 0;
+    const scoreMultiplier = Math.max(0.88, Math.min(1.12, 1 + displayedZ * 0.05));
+
+    prob[no]={
+      p1:Math.max(0.1,p1score*scoreMultiplier),
+      p2:Math.max(0.1,p2score*scoreMultiplier),
+      p3:Math.max(0.1,p3score*scoreMultiplier),
+      ability, zTotal, displayScore:displayedTotal, scoreMultiplier
+    };
   });
 
   // 1着確率を正規化（合計100%）
@@ -2328,10 +2392,14 @@ function getKimariteForAxisGlobal(axisArg, entries, sorted, sc, outerEliteStrong
 // ── STEP1: レース分類（5段階）──────────────────────
 // ── 予想点数の選択（ステップ⑤）─────────────────────
 function selectPredPoints(pt, btn){
-  APP.predPoints=pt;
+  const allowed=[4,6,8,10];
+  if(!allowed.includes(Number(pt))) return;
+  APP.predPoints=Number(pt);
   document.querySelectorAll('.pt-btn').forEach(b=>b.classList.remove('active'));
-  btn.classList.add('active');
-  document.getElementById('predBtnLabel').textContent=pt;
+  const activeBtn=btn||document.querySelector(`.pt-btn[data-pt="${pt}"]`);
+  if(activeBtn) activeBtn.classList.add('active');
+  const label=document.getElementById('predBtnLabel');
+  if(label) label.textContent=pt;
 }
 function classifyRace(chaosScore){
   const total=APP.predPoints||10;
@@ -2409,6 +2477,33 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   const {main:mainCnt, anti:antiCnt, hole:holeCnt}=race;
   const sc=expand.sc;
   const wx=APP.weather;
+  // 表示スコアと同じ基準でA〜D評価を判定し、E評価艇は全着順の候補から除外する。
+  // A〜Dの評価は「1着専用」ではなく、1着・2着・3着すべての組み合わせで使用する。
+  const gradeScoreRows=(APP.scores||[]).filter(x=>Number.isFinite(Number(x.total)));
+  const gradeMaxScore=gradeScoreRows.length?Math.max(...gradeScoreRows.map(x=>Number(x.total))):0;
+  const gradeByNo=new Map();
+  if(gradeMaxScore>0){
+    for(const row of gradeScoreRows){
+      const score=Number(row.total);
+      const grade=score>=gradeMaxScore*0.92?'A':score>=gradeMaxScore*0.80?'B':score>=gradeMaxScore*0.65?'C':score>=gradeMaxScore*0.50?'D':'E';
+      gradeByNo.set(Number(row.no),grade);
+    }
+  }
+  const isGradeEligible=no=>gradeMaxScore<=0||gradeByNo.get(Number(no))!=='E';
+  // E評価は通常予想では使わず、穴狙い条件を満たすアウト艇のみ候補に残す。
+  const isQualifiedHoleBoat=no=>{
+    const e=entries.find(x=>Number(x.no)===Number(no));
+    if(!e||e.no<3) return false;
+    const sessGood=(e.sessionResults||[]).length>=2 &&
+      e.sessionResults.reduce((a,b)=>a+b,0)/e.sessionResults.length<=2.5;
+    const motorGood=(e.motorRate||0)>=50;
+    const etTop=!!etRankMap[e.no]&&etRankMap[e.no]<=3;
+    const stFast=(e.exhibitST>0&&e.exhibitST<=0.15)||(e.avgST>0&&e.avgST<=0.16);
+    return sessGood||motorGood||etTop||stFast;
+  };
+  const isEligibleForPick=(no,cat)=>isGradeEligible(no)||
+    (cat==='ana'&&canHole&&isQualifiedHoleBoat(no));
+
   const vc=VENUE_CHARS[APP.selectedVenue?.code]||{in1:54,sashi:47,maki:45};
   const spd=parseFloat(wx.windSpeed)||0;
   const dir=wx.windDir||'';
@@ -2430,7 +2525,7 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   const topP1ForWinner=Math.max(...entries.map(e=>placeP[e.no]?.p1||0));
   const winnerThreshold=Math.max(topP1ForWinner*0.30, 0.06);
-  const byP1=[...entries].sort((a,b)=>(placeP[b.no]?.p1||0)-(placeP[a.no]?.p1||0));
+  const byP1=entries.filter(e=>isGradeEligible(e.no)).sort((a,b)=>(placeP[b.no]?.p1||0)-(placeP[a.no]?.p1||0));
   let winnerCandidates=byP1
     .filter(e=>(placeP[e.no]?.p1||0)>=winnerThreshold)
     .map(e=>e.no);
@@ -2600,6 +2695,8 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   function addPick(a,b,c,label,cat,note,allowNoIn1){
     if(!a||!b||!c) return false;
     if(a===b||b===c||a===c) return false;
+    // 通常の買い目はA〜D評価。穴カテゴリのみ、根拠のあるE評価艇を条件付きで許可。
+    if(!isEligibleForPick(a,cat)||!isEligibleForPick(b,cat)||!isEligibleForPick(c,cat)) return false;
     // 1号艇が絡まない目は原則却下。ただし「拮抗節」または明示許可の場合は通す
     if(!allowNoIn1&&!in1IsWeak&&a!==1&&b!==1&&c!==1) return false;
     const key=`${a}-${b}-${c}`;
@@ -2849,42 +2946,46 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   }
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // ━━ 動的カテゴリ配分 ━━
-  // カテゴリごとの点数を固定テーブルで先に決めるのではなく、
-  // 「そのシナリオが実際にどれだけ起こりそうか」を表す実測シグナルで
-  // 各候補に強さスコアをつけ、全カテゴリを横断してランキングする。
-  //   ・main/osae … 軸の1着確率(placeP)×軸の確信度(axisConfidence)
-  //   ・sashi/maki/makisashi … 展開シミュレーションの実現確率(expand.sc)
-  //   ・ana … 混戦度(chaosScore)と1着候補の頭数（拮抗しているほど穴の価値が上がる）
-  //   ・nuki … 生成条件(nukiConditionMet)を満たした場合のみ候補が存在するため定数
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  const axisConfMult = axisConfidence==='高'?1.25 : axisConfidence==='低'?0.75 : 1.0;
-  const mainAxisP1 = placeP[axis]?.p1||0.01;
-  const topP1 = Math.max(...entries.map(e=>placeP[e.no]?.p1||0));
-  const contenderCount = entries.filter(e=>(placeP[e.no]?.p1||0)>=topP1*0.80).length;
-  // 混戦度と1着候補の頭数から「穴」を狙う価値を算出（頭数が多い＝本命を絞れない＝穴の価値が上がる）
-  // ※係数2.3は、コース計算修正でmainAxisP1が正しい値（本来の1号艇1着率）に戻ったことで
-  // 本線/押さえの優先度が底上げされ、相対的に穴が埋もれやすくなった分を埋め戻すための調整。
-  // （修正前は本線0.70 vs 穴0.86で穴が優勢、修正後は本線1.60 vs 穴0.86で本線が1.85倍優勢になっていた）
-  const anaStrength = (0.25 + Math.min(0.5,(race.chaosScore||0)/16) + (contenderCount-1)*0.12) * 2.3;
-
-  function categoryStrength(cat){
-    switch(cat){
-      case 'main':
-      case 'osae':      return mainAxisP1 * axisConfMult * 3.2;
-      case 'sashi':     return (sc.sashi||0) * 2.6;
-      // まくり・まくり差しは実戦データ（2026/9時点：まくり353点中1的中=0.3%、まくり差し28点中0的中=0%）で
-      // 他カテゴリより著しく非効率だったため、展開確率(sc)自体は変えず、係数を大きく下げて点数の優先度を下げる。
-      case 'maki':      return (sc.maki||0) * 1.0;
-      case 'makisashi': return (sc.makiSashi||0) * 0.6;
-      case 'ana':       return anaStrength;
-      case 'nuki':      return 0.55;
-      default:          return 0.5;
+  // 全順列を候補プールに追加し、候補生成ルールの都合で有力な組み合わせが
+  // 抜け落ちるのを防ぐ。既存のスコア計算は変更せず、最終順位は同じtriProbで評価する。
+  // 1号艇を含まない組み合わせは、既存方針どおり「イン優位が弱い」と判定された場合のみ許可。
+  // 最低確率0.4%未満は候補に加えず、点数を無理に穴目で埋めない。
+  for(const a of entries.map(e=>e.no)){
+    for(const b of entries.map(e=>e.no)){
+      if(a===b) continue;
+      for(const c of entries.map(e=>e.no)){
+        if(a===c||b===c) continue;
+        const p=triProb(a,b,c,placeP,entries);
+        const scoreRows=(APP.scores||[]).filter(x=>Number.isFinite(Number(x.total)));
+        const maxDisplayedScore=scoreRows.length?Math.max(...scoreRows.map(x=>Number(x.total))):0;
+        const firstScore=scoreRows.find(x=>Number(x.no)===a);
+        const gradeEligibleWinner=!!firstScore&&maxDisplayedScore>0&&Number(firstScore.total)>=maxDisplayedScore*0.50&&isGradeEligible(a);
+        // A〜D評価の艇は、確率が通常の候補下限を少し下回っても1着候補から即除外しない。
+        // 展示STなどで番狂わせが起きる余地を残し、最終選定で点数上限を守りながら比較する。
+        if(p<0.004&&!(a!==1&&gradeEligibleWinner&&p>=0.001)) continue;
+        const includesIn1=a===1||b===1||c===1;
+        addPick(
+          a,b,c,
+          includesIn1?'押さえ':'穴',
+          includesIn1?'osae':'ana',
+          gradeEligibleWinner&&a!==1?'スコアA〜D評価の1着候補を補完':'全組み合わせ確率評価による補完候補',
+          gradeEligibleWinner&&a!==1 ? true : in1IsWeak
+        );
+      }
     }
   }
 
-  // 最終買い目数は最大15点（18点・20点は復活させない）
-  const totalPt=Math.min(15, race.total||10);
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // ━━ 買い目スコア：決まり手・展開カテゴリによる順位補正を無効化 ━━
+  // 以前は本線/押さえ/差し/まくり/まくり差し等のカテゴリごとに係数を掛けていた。
+  // これにより、着順確率(placeP)が高い買い目より、決まり手カテゴリの係数が高い買い目が
+  // 上位になる可能性があった。今は全候補を着順確率ベースで比較し、穴だけ配当妙味の
+  // 小さな補正を別途適用する。既存の候補生成・着順確率計算自体は変更しない。
+
+  // 最終買い目数は4/6/8/10点に限定し、上限を10点にする。
+  const allowedPointCounts=[4,6,8,10];
+  const requestedPt=Number(race.total)||Number(APP.predPoints)||8;
+  const totalPt=allowedPointCounts.reduce((best,n)=>Math.abs(n-requestedPt)<Math.abs(best-requestedPt)?n:best,allowedPointCounts[0]);
 
   // 穴の「配当妙味」：的中確率が高いだけの低配当買い目ばかりにならないよう、
   // 穴候補にだけ、圧縮(log)した小さな加点を与える。
@@ -2897,10 +2998,18 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   };
   const scored=result.map(p=>{
     const prob=triProb(p.boats[0],p.boats[1],p.boats[2],placeP,entries);
+    const firstNo=p.boats[0];
+    const firstEntry=entries.find(e=>e.no===firstNo);
+    const scoreRows=(APP.scores||[]).filter(x=>Number.isFinite(Number(x.total)));
+    const maxDisplayedScore=scoreRows.length?Math.max(...scoreRows.map(x=>Number(x.total))):0;
+    const firstScore=scoreRows.find(x=>Number(x.no)===firstNo);
+    const eligibleAlt=firstNo!==1&&!!firstScore&&maxDisplayedScore>0&&Number(firstScore.total)>=maxDisplayedScore*0.50;
+    const st=firstEntry?(firstEntry.exhibitST>0?firstEntry.exhibitST:(firstEntry.avgST>0?firstEntry.avgST:0.20)):0.20;
+    const winnerDiversityBoost=eligibleAlt?(st<=0.15?1.18:1.08):1.0;
     return {
       ...p,
       prob,
-      score: prob * categoryStrength(p.cat) * valueBoost(p.cat,prob)
+      score: prob * valueBoost(p.cat,prob) * winnerDiversityBoost
     };
   });
   scored.sort((x,y)=>y.score-x.score);
@@ -2910,18 +3019,20 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
   // 保てている間だけ点数を伸ばす。効率が大きく落ちた時点で打ち切りを推奨する。
   // （的中確率が高い候補から並んでいるスコアリングの性質をそのまま利用できる）
   function recommendPoints(scoredList){
-    const opts=[6,8,10,12,15];
-    const top=scoredList.slice(0,20);
-    const cumProb=(n)=> top.slice(0,n).reduce((s,p)=>s+(p.prob||0),0);
-    if(top.length<6) return opts[0];
-    const baseEff=cumProb(Math.min(6,top.length))/Math.min(6,top.length);
-    let rec=opts[0];
+    // 推奨点数は4/6/8/10点のみ。上位4点の平均確率を基準に、追加分の効率を比較する。
+    const opts=[4,6,8,10];
+    const top=scoredList.slice(0,10);
+    const cumProb=(n)=>top.slice(0,n).reduce((sum,p)=>sum+(p.prob||0),0);
+    if(top.length===0) return 4;
+    if(top.length<4) return 4;
+    const baseEff=cumProb(4)/4;
+    let rec=4;
     for(let i=1;i<opts.length;i++){
       const n=opts[i], prevN=opts[i-1];
-      if(top.length<prevN) break;
-      const cappedN=Math.min(n,top.length);
-      const segEff=(cumProb(cappedN)-cumProb(prevN))/(cappedN-prevN||1);
-      if(segEff>=baseEff*0.40){ rec=cappedN; } else { break; }
+      if(top.length< n) break;
+      const segEff=(cumProb(n)-cumProb(prevN))/(n-prevN);
+      if(segEff>=baseEff*0.40) rec=n;
+      else break;
     }
     return rec;
   }
@@ -2937,10 +3048,9 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
     finalResult.push(p);
   }
 
-  // 高配当の可能性を残すための「穴枠」の最低保証：
-  // 点数が8点以上なら1点、12点以上なら2点までは、成立可能性(prob>=0.003)のある穴候補を確保する。
-  // 確率の高い買い目ばかりで埋まってしまうのを防ぐが、成立可能性が低すぎる穴は入れない。
-  const minAna=totalPt>=12?2:totalPt>=8?1:0;
+  // 高配当候補の最低保証：8点・10点の場合のみ、成立可能性(prob>=0.003)のある穴候補を最大1点確保する。
+  // 4点・6点では、点数を圧迫しないよう穴枠の最低保証を行わない。
+  const minAna=totalPt>=8?1:0;
   if(minAna>0){
     let anaIn=finalResult.filter(p=>p.cat==='ana').length;
     const anaPool=scored.filter(p=>p.cat==='ana'&&p.prob>=0.003&&!finalResult.includes(p));
@@ -2955,6 +3065,53 @@ function buildPicksFromExpand(placeP, expand, entries, race, makiSashiCands, can
       anaIn++;
     }
   }
+
+  // A〜D評価の艇が1着になる買い目も確保する。
+  // 1号艇を本命から外すのではなく、6点以下なら最低1枠、8〜10点なら最大2枠を別の1着候補に割り当てる。
+  // 総合スコア・1着確率・展示STを併用して代替候補を選び、元の確率計算は書き換えない。
+  {
+    const scoreRows=(APP.scores||[]).filter(x=>Number.isFinite(Number(x.total)));
+    const maxDisplayedScore=scoreRows.length?Math.max(...scoreRows.map(x=>Number(x.total))):0;
+    const scoreByNo=new Map(scoreRows.map(x=>[Number(x.no),Number(x.total)]));
+    const eligibleAltNos=entries.filter(e=>e.no!==1&&maxDisplayedScore>0&&
+      (scoreByNo.get(e.no)||-Infinity)>=maxDisplayedScore*0.50)
+      .map(e=>({e,score:scoreByNo.get(e.no)||0}))
+      .sort((x,y)=>{
+        const rank=(o)=>{
+          const e=o.e, p1=placeP[e.no]?.p1||0;
+          const st=e.exhibitST>0?e.exhibitST:(e.avgST>0?e.avgST:0.20);
+          const scoreRatio=maxDisplayedScore>0?o.score/maxDisplayedScore:0;
+          return p1*(0.80+0.40*scoreRatio)*(st<=0.15?1.25:st<=0.17?1.08:1.0);
+        };
+        return rank(y)-rank(x);
+      });
+    const altSlots=totalPt>=8?2:1;
+    let altAdded=0;
+    for(const item of eligibleAltNos){
+      if(altAdded>=altSlots) break;
+      const no=item.e.no;
+      if(finalResult.some(p=>p.boats[0]===no)) continue;
+      const candidate=scored.find(p=>p.boats[0]===no&&p.prob>=0.001);
+      if(!candidate) continue;
+      if(finalResult.length<totalPt){
+        finalResult.push(candidate);
+      } else {
+        let replaceAt=-1;
+        for(let k=finalResult.length-1;k>=0;k--){
+          if(finalResult[k]!==mainTop&&finalResult[k].boats[0]===1){replaceAt=k;break;}
+        }
+        if(replaceAt<0){
+          for(let k=finalResult.length-1;k>=0;k--){
+            if(finalResult[k]!==mainTop&&finalResult[k].boats[0]!==no){replaceAt=k;break;}
+          }
+        }
+        if(replaceAt<0) continue;
+        finalResult[replaceAt]=candidate;
+      }
+      altAdded++;
+    }
+  }
+
   const finalSeen=new Set(finalResult.map(p=>p.boats.join('-')));
 
   // 指定点数に満たない場合は期待値順で補完（1号艇絡みを優先、最後の1枠のみ自由枠）
@@ -3263,14 +3420,14 @@ function buildScenarios(placeP, expand, entries, etRankMap, withET, vc, wx){
 
   return candidates.map(cand=>{
     const axisNo=cand.no;
-    // 決まり手判定（buildPicksFromExpandと完全に同じグローバル関数を使用。以前は別々に重複実装しており、
-    // 「シナリオ表示」と「実際の買い目」がズレる原因になっていた）
-    const {kimarite:km, boost}=getKimariteForAxisGlobal(axisNo, entries, sorted, sc, outerEliteStrong, outFavorable, spd);
+    // 決まり手ロジックは買い目の順位付けに使用しない。
+    // シナリオ表示の2着・3着候補も、手作業のブーストではなく着順確率(placeP)だけで並べる。
+    const {kimarite:km}=getKimariteForAxisGlobal(axisNo, entries, sorted, sc, outerEliteStrong, outFavorable, spd);
 
     const p2s=[...entries].filter(e=>e.no!==axisNo)
-      .sort((a,b)=>((placeP[b.no]?.p2||0)*boost[b.no])-((placeP[a.no]?.p2||0)*boost[a.no]));
+      .sort((a,b)=>(placeP[b.no]?.p2||0)-(placeP[a.no]?.p2||0));
     const p3s=[...entries].filter(e=>e.no!==axisNo)
-      .sort((a,b)=>((placeP[b.no]?.p3||0)*boost[b.no])-((placeP[a.no]?.p3||0)*boost[a.no]));
+      .sort((a,b)=>(placeP[b.no]?.p3||0)-(placeP[a.no]?.p3||0));
 
     const b1=p2s[0]?.no, b2=p2s[1]?.no;
     const c1=p3s[0]?.no, c2=p3s[1]?.no;
@@ -3367,6 +3524,7 @@ function computeCore(){
     return sessGood||motorGood||etTop||stFast;
   }).sort((a,b)=>(placeP[b.no]?.p1||0)-(placeP[a.no]?.p1||0));
   const canHole=chaosScore>=3&&(makiSashiCands.length>0||holeCandEntries.length>0);
+  APP._canHole=canHole;
 
   return {v,vc,wx,entries,W,withET,etRankMap,chaosScore,chaosLines,raceClass,expand,placeP,makiSashiCands,holeCandEntries,canHole};
 }
@@ -3412,10 +3570,79 @@ function runPred(){
 
   // 1着艇番号でグループ化し、番号順に並べる（同じ1着内は期待値順）
   // 例: 1-2-3,1-3-2,1-6-4... → 2-1-4,2-4-1... → 3-1-4... → 6-1-4...
-  result.sort((a,b)=>a.boats[0]-b.boats[0]||b.ev-a.ev);
+  result.sort((a,b)=>a.boats[0]-b.boats[0]||b.prob-a.prob);
 
   renderPredV5(result,raceClass,expand,chaosScore,chaosLines,placeP,W);
-  savePredHistory(result);
+
+  // 二連単は三連単から削るのではなく、1着確率×条件付き2着確率で独立評価する。
+  const exactaResult=buildExactaPicks(placeP,entries,6);
+  document.getElementById('predOutput').innerHTML += renderExactaSection(exactaResult);
+  savePredHistory(result,exactaResult);
+}
+
+// ── 二連単：1着・2着を独立評価して上位6点を選ぶ ──
+function buildExactaPicks(placeP, entries, limit=6){
+  const candidates=[];
+  const scoreRows=(APP.scores||[]).filter(x=>Number.isFinite(Number(x.total)));
+  const maxScore=scoreRows.length?Math.max(...scoreRows.map(x=>Number(x.total))):0;
+  const scoreGradeByNo=new Map();
+  if(maxScore>0){
+    scoreRows.forEach(row=>{
+      const score=Number(row.total);
+      scoreGradeByNo.set(Number(row.no),score>=maxScore*0.92?'A':score>=maxScore*0.80?'B':score>=maxScore*0.65?'C':score>=maxScore*0.50?'D':'E');
+    });
+  }
+  const isQualifiedHoleBoat=no=>{
+    const e=entries.find(x=>Number(x.no)===Number(no));
+    if(!e||e.no<3) return false;
+    const sessGood=(e.sessionResults||[]).length>=2&&e.sessionResults.reduce((a,b)=>a+b,0)/e.sessionResults.length<=2.5;
+    const motorGood=(e.motorRate||0)>=50;
+    const etValues=entries.filter(x=>x.exhibitTime>0).sort((x,y)=>x.exhibitTime-y.exhibitTime);
+    const etTop=etValues.findIndex(x=>x.no===e.no)>=0&&etValues.findIndex(x=>x.no===e.no)<3;
+    const stFast=(e.exhibitST>0&&e.exhibitST<=0.15)||(e.avgST>0&&e.avgST<=0.16);
+    return sessGood||motorGood||etTop||stFast;
+  };
+  const isEligible=no=>maxScore<=0||scoreGradeByNo.get(Number(no))!=='E'||(APP._canHole&&isQualifiedHoleBoat(no));
+  entries.forEach(a=>entries.forEach(b=>{
+    if(a.no===b.no||!isEligible(a.no)||!isEligible(b.no)) return;
+    const pa=placeP[a.no]?.p1||0.001;
+    const rem=entries.filter(e=>e.no!==a.no);
+    const denom=rem.reduce((sum,e)=>sum+(placeP[e.no]?.p2||0.001),0)||1;
+    const pb=(placeP[b.no]?.p2||0.001)/denom;
+    const prob=pa*pb;
+    candidates.push({boats:[a.no,b.no],type:'二連単',prob,odds:Math.max(2,Math.min(999,Math.round(0.75/prob))),ev:parseFloat((prob*Math.max(2,Math.min(999,Math.round(0.75/prob)))).toFixed(3)),conf:prob>=.12?'A':prob>=.06?'B':prob>=.03?'C':prob>=.01?'D':'E',label:'独立評価'});
+  }));
+  // 予測確率順に選ぶ。ただし1着艇が1艇に偏りすぎないよう、まず同じ1着は最大3点まで。
+  // それでも点数に届かない場合は残り候補から補充する。
+  candidates.sort((a,b)=>b.prob-a.prob);
+  const selected=[], firstCounts={};
+  for(const p of candidates){
+    if(selected.length>=limit) break;
+    if((firstCounts[p.boats[0]]||0)>=3) continue;
+    selected.push(p); firstCounts[p.boats[0]]=(firstCounts[p.boats[0]]||0)+1;
+  }
+  if(selected.length<limit){
+    for(const p of candidates){
+      if(selected.length>=limit) break;
+      if(!selected.some(x=>x.boats[0]===p.boats[0]&&x.boats[1]===p.boats[1])) selected.push(p);
+    }
+  }
+  return selected;
+}
+function renderExactaSection(picks){
+  const cfg=getPurchaseConfig();
+  const rows=picks.map((p,i)=>`<div class="pred-card" style="margin-bottom:6px;">
+    <span class="pred-rank">${i+1}</span>
+    <div class="pred-boats"><span class="bn bn${p.boats[0]}">${p.boats[0]}</span><span class="pred-arr">▶</span><span class="bn bn${p.boats[1]}">${p.boats[1]}</span></div>
+    <div style="flex:1;margin-left:8px;"><span style="font-size:.7rem;color:var(--text2);">1着確率 × 条件付き2着確率</span></div>
+    <div class="pred-meta"><div class="pred-conf">${(p.prob*100).toFixed(1)}%</div><div style="font-size:.7rem;color:var(--text2);">モデル推定${p.odds}倍</div></div>
+  </div>`).join('');
+  return `<div class="card" style="margin-top:1rem;border:1px solid var(--teal);">
+    <div class="card-title">🎯 二連単 独立予想 ${picks.length}点 <span style="font-size:.7rem;color:var(--teal);">基本6点</span></div>
+    <div style="font-size:.75rem;color:var(--text2);margin-bottom:.6rem;line-height:1.7;">三連単の買い目から作らず、各艇の1着評価と、1着艇を除いた条件付き2着評価を組み合わせて選出しています。</div>
+    ${rows}
+    <div style="font-size:.7rem;color:var(--text3);margin-top:.5rem;">※モデル推定オッズは実オッズではありません。的中・利益を保証するものではありません。二連単の投資額は6点×購入設定の1点金額です。</div>
+  </div>`;
 }
 
 // ── 予想表示 v5 ──────────────────────────────────
@@ -3512,7 +3739,7 @@ function renderPredV5(picks,raceClass,expand,chaosScore,chaosLines,placeP,W){
     const prio=p.priority||p.label;
     const lc=labelC[prio]||'var(--text2)';
     const rc=labelC[p.reason]||'var(--text3)';
-    const evc=p.ev>=2.0?'var(--teal)':p.ev>=1.0?'var(--blue)':'var(--text3)';
+    const evc=p.prob>=0.06?'var(--teal)':p.prob>=0.03?'var(--blue)':'var(--text3)';
     const reasonHtml=(p.reasons||[]).map(r=>`<span>・${r}</span>`).join('<br>');
     const storyHtml=p.story?`<div style="font-size:.74rem;color:var(--text1,#ddd);line-height:1.75;padding:6px 8px;background:var(--bg3);border-radius:4px;margin-bottom:5px;font-style:italic;">${p.story}</div>`:'';
     html+=`<div class="pred-card ${rankCls[i]||''}">
@@ -3525,8 +3752,8 @@ function renderPredV5(picks,raceClass,expand,chaosScore,chaosLines,placeP,W){
       </div>
       <div class="pred-meta">
         <div class="pred-conf">${(p.prob*100).toFixed(1)}%</div>
-        <div style="font-size:.7rem;color:var(--text2);">推定${p.odds}倍</div>
-        <div class="pred-ev" style="color:${evc};font-weight:700;">EV ${p.ev}</div>
+        <div style="font-size:.7rem;color:var(--text2);">モデル推定${p.odds}倍</div>
+        <div class="pred-ev" title="実際の三連単オッズではなく、予測確率から算出したモデル値です" style="color:${evc};font-weight:700;">モデル値 ${p.ev}</div>
         <div class="cbar"><div class="cfill" style="width:${Math.min(100,p.prob*300)}%;"></div></div>
       </div>
       <div class="pred-reason">${storyHtml}${reasonHtml}</div>
@@ -3536,7 +3763,8 @@ function renderPredV5(picks,raceClass,expand,chaosScore,chaosLines,placeP,W){
 
   html+=`
   <div style="margin-top:.75rem;padding:.65rem 1rem;background:var(--bg3);border:1px solid var(--border);border-radius:6px;font-size:.72rem;color:var(--text2);line-height:1.8;">
-    ⚡ <b>適応型予想エンジン v5</b>: 展開シミュレーション＋STEP4優先順位重み付け＋自己学習対応<br>
+    ⚡ <b>適応型予想エンジン v5</b>: 展開シミュレーション＋重み調整＋自己学習対応<br>
+    ※オッズ欄・モデル値は実際の三連単オッズを取得していない推定値で、実際の期待値・回収率を保証しません。<br>
     📊 合計投資額 ${picks.length*100}円想定　⚠️ 投票は自己責任で（20歳未満禁止）
   </div>`;
   document.getElementById('predOutput').innerHTML=html;
@@ -3549,14 +3777,19 @@ function renderPredV5(picks,raceClass,expand,chaosScore,chaosLines,placeP,W){
 // 購入設定（LocalStorage）
 // ===================================================
 function getPurchaseConfig(){
+  const allowed=[4,6,8,10];
   try{
     const c=JSON.parse(localStorage.getItem('brPurchaseConfig')||'null');
-    if(c&&c.points&&c.unitAmt) return c;
+    if(c&&c.points&&c.unitAmt){
+      const points=allowed.includes(Number(c.points))?Number(c.points):10;
+      return {points, unitAmt:Number(c.unitAmt)||100};
+    }
   }catch(e){}
   return {points:10, unitAmt:100};
 }
 function savePurchaseConfig(){
-  const points=parseInt(document.getElementById('cfgPoints')?.value)||10;
+  const rawPoints=parseInt(document.getElementById('cfgPoints')?.value)||10;
+  const points=[4,6,8,10].includes(rawPoints)?rawPoints:10;
   const sel=document.getElementById('cfgUnitSel')?.value;
   const unitAmt=sel==='custom'
     ? parseInt(document.getElementById('cfgCustomAmt')?.value)||100
@@ -3564,8 +3797,7 @@ function savePurchaseConfig(){
   const cfg={points, unitAmt};
   localStorage.setItem('brPurchaseConfig',JSON.stringify(cfg));
   updateInvestLabel();
-  // 既存の全履歴の投資額を再計算
-  recalcAllInvest(cfg);
+  // 過去の投資額は変更せず、今後保存する予想から新しい設定を使用する。
   initStats();
 }
 function onUnitSelChange(){
@@ -3583,7 +3815,7 @@ function updateInvestLabel(){
 function initPurchaseConfig(){
   const cfg=getPurchaseConfig();
   const pEl=document.getElementById('cfgPoints');
-  if(pEl) pEl.value=String(cfg.points);
+  if(pEl) pEl.value=String([4,6,8,10].includes(Number(cfg.points))?cfg.points:10);
   const stdAmts=[100,200,300,500,1000];
   const sEl=document.getElementById('cfgUnitSel');
   if(sEl){
@@ -3600,44 +3832,74 @@ function initPurchaseConfig(){
   updateInvestLabel();
 }
 
-// 既存履歴の投資額を設定変更時に一括再計算
+// 購入設定はこれから保存する予想に適用する。過去履歴は書き換えない。
 function recalcAllInvest(cfg){
-  const hist=getHistory();
-  let changed=false;
-  hist.forEach(h=>{
-    if(h.picks&&h.picks.length>0){
-      const newInvest=(h.picks.length)*(cfg.unitAmt);
-      if(h.invest!==newInvest){ h.invest=newInvest; changed=true; }
-    }
-  });
-  if(changed) localStorage.setItem('brHistory',JSON.stringify(hist));
+  // 互換性のため関数を残すが、既存の投資額は変更しない。
+  return;
 }
 
 // ===================================================
 // 履歴
 // ===================================================
-function savePredHistory(picks){
+function savePredHistory(picks,picks2=[]){
   const v=APP.selectedVenue;
   const cfg=getPurchaseConfig();
+  // 画面に実際に表示されているスコアを保存する。内部値だけを保存すると、
+  // 表示の再描画漏れがあった場合に履歴と画面が食い違うため、DOM表示を正とする。
+  const scoreGrid=document.getElementById('scoreGrid');
+  const displayedScores=scoreGrid?[...scoreGrid.querySelectorAll('.score-cell')].map(cell=>{
+    const totalEl=cell.querySelector('.score-total');
+    const boatEl=cell.querySelector('.bn');
+    const header=cell.firstElementChild;
+    const gradeEl=header?header.querySelector('span:not(.bn)'):null;
+    const children=[...cell.children];
+    const starsEl=children[3]||null;
+    const nameEl=cell.querySelector('.text-xs.text-muted');
+    const barEl=cell.querySelector('.mfill');
+    return {
+      no:parseInt(boatEl?.textContent||'0',10),
+      name:APP.scores.find(s=>s.no===parseInt(boatEl?.textContent||'0',10))?.name||nameEl?.textContent||'',
+      total:parseFloat(totalEl?.textContent||'0')||0,
+      displayTotal:totalEl?.textContent?.trim()||'',
+      displayGrade:gradeEl?.textContent?.trim()||'',
+      displayStars:starsEl?.textContent?.trim()||'',
+      displayName:nameEl?.textContent?.trim()||'',
+      displayScoreColor:totalEl?.style.color||'',
+      displayGradeColor:gradeEl?.style.color||'',
+      displayStarsColor:starsEl?.style.color||'',
+      displayBarColor:barEl?.style.backgroundColor||''
+    };
+  }).filter(s=>s.no>0):[];
+  const scoreSnapshot=displayedScores.length?displayedScores:APP.scores.map(s=>({no:s.no,name:s.name,total:s.total}));
   const item={
     id:Date.now(),
     datetime:new Date().toISOString(),
     venue:v?v.name:'',
     venueCode:v?v.code:'',
     race:APP.selectedRace,
-    boatScores:APP.scores.map(s=>({no:s.no,name:s.name,total:s.total,bd:s.bd})),
+    boatScores:scoreSnapshot,
+    // 予想生成時点の出走表・展示入力をスナップショット保存（後から現行データで上書きしない）
+    entrySnapshot:APP.entries.map(e=>({...e,
+      sessionResults:Array.isArray(e.sessionResults)?[...e.sessionResults]:[],
+      sessionByDay:Array.isArray(e.sessionByDay)?[...e.sessionByDay]:[],
+      lastWeekResults:Array.isArray(e.lastWeekResults)?[...e.lastWeekResults]:[]
+    })),
     weather:{...APP.weather},
     chaoticLevel:APP.chaoticLevel||'中',
     picks:picks.map(p=>({
-      boats:p.boats,type:p.type,label:p.label,
+      boats:p.boats,type:'三連単',label:p.label,
       priority:p.priority,reason:p.reason,
       prob:p.prob,odds:p.odds,ev:p.ev,conf:p.conf
     })),
+    picks2:picks2.map(p=>({boats:p.boats,type:'二連単',label:p.label,prob:p.prob,odds:p.odds,ev:p.ev,conf:p.conf})),
     result:null,
     resultOrder:'',
-    invest:picks.length*cfg.unitAmt, // 設定から自動計算
+    invest:picks.length*cfg.unitAmt,
+    invest2:picks2.length*cfg.unitAmt,
     payout:0,
+    payout2:0,
     hit:null,
+    hit2:null,
     exhibitFixed:true, // 展示タイムの向き修正後に作られた履歴（学習に使える）
   };
   const hist=getHistory();
@@ -3679,6 +3941,70 @@ function renderSelfAnalysis(a){
   </div>`;
 }
 
+function renderHistoryRaceInfo(h){
+  const entries=Array.isArray(h.entrySnapshot)?h.entrySnapshot:[];
+  if(!entries.length) return '<div class="text-xs text-muted" style="margin:8px 0;">この履歴には当時の出走表・展示情報が保存されていません（過去履歴は再取得できない場合があります）</div>';
+  const esc=(value)=>String(value??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const fmt=(v,suffix='')=>v===null||v===undefined||v===''||v===0||v==='0'?'—':`${esc(v)}${suffix}`;
+  const rows=[...entries].sort((a,b)=>(Number(a.no)||0)-(Number(b.no)||0)).map(e=>`<tr>
+    <td style="padding:4px 5px;white-space:nowrap;"><span class="bn bn${Number(e.no)||1}">${esc(e.no)}</span> ${esc(e.name||'—')}</td>
+    <td style="padding:4px 5px;white-space:nowrap;">${esc(e.grade||'—')} / ${esc(e.branch||'—')}</td>
+    <td style="padding:4px 5px;white-space:nowrap;">${fmt(e.winRate)} / ${fmt(e.localWinRate)}</td>
+    <td style="padding:4px 5px;white-space:nowrap;">${fmt(e.motorNo)} (${fmt(e.motorRate,'%')})</td>
+    <td style="padding:4px 5px;white-space:nowrap;">${fmt(e.avgST)}</td>
+    <td style="padding:4px 5px;white-space:nowrap;">${fmt(e.exhibitST)} / ${fmt(e.exhibitTime)}</td>
+    <td style="padding:4px 5px;white-space:nowrap;">${fmt(e.approach||e.no)}コース</td>
+  </tr>`).join('');
+  const wx=h.weather||{};
+  const wxText=[wx.windDir?`風向 ${esc(wx.windDir)}`:'',wx.windSpeed?`風速 ${esc(wx.windSpeed)}m`:'',wx.wave?`波高 ${esc(wx.wave)}cm`:'',wx.airTemp?`気温 ${esc(wx.airTemp)}℃`:'',wx.waterTemp?`水温 ${esc(wx.waterTemp)}℃`:''].filter(Boolean).join(' ・ ')||'天候データなし';
+  return `<details style="margin:8px 0;padding:8px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;">
+    <summary style="cursor:pointer;font-size:.72rem;font-weight:700;">🗂️ 予想時のレース情報・出走表（${entries.length}艇）</summary>
+    <div style="font-size:.68rem;color:var(--text2);margin:6px 0;">${wxText}</div>
+    <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.66rem;">
+      <thead><tr style="color:var(--text2);text-align:left;border-bottom:1px solid var(--border);"><th style="padding:4px 5px;">艇・選手</th><th style="padding:4px 5px;">級・支部</th><th style="padding:4px 5px;">全国/当地勝率</th><th style="padding:4px 5px;">モーター</th><th style="padding:4px 5px;">平均ST</th><th style="padding:4px 5px;">展示ST/タイム</th><th style="padding:4px 5px;">進入</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>
+    <div style="font-size:.64rem;color:var(--text3);margin-top:5px;">この表は予想保存時点の記録です。未入力の展示値は「—」で表示します。</div>
+  </details>`;
+}
+
+function renderHistoryBoatScores(h){
+  const scores=Array.isArray(h.boatScores)?h.boatScores:[];
+  if(!scores.length) return '<div class="text-xs text-muted" style="margin:8px 0;">この履歴には当時のスコアが保存されていません</div>';
+  const sortedByScore=[...scores].sort((a,b)=>(Number(b.total)||0)-(Number(a.total)||0));
+  const maxTotal=Math.max(1,...scores.map(s=>Number(s.total)||0));
+  const rankByNo=new Map(sortedByScore.map((s,i)=>[Number(s.no),i+1]));
+  const esc=(value)=>String(value??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const getGrade=(total)=>total>=maxTotal*0.92?{g:'A',c:'var(--teal)'}:total>=maxTotal*0.80?{g:'B',c:'var(--blue)'}:total>=maxTotal*0.65?{g:'C',c:'var(--gold)'}:total>=maxTotal*0.50?{g:'D',c:'var(--orange)'}:{g:'E',c:'var(--red)'};
+  const getStars=(rank)=>rank===1?'★★★★★':rank===2?'★★★★☆':rank===3?'★★★☆☆':rank<=5?'★★☆☆☆':'★☆☆☆☆';
+  const rows=[...scores].sort((a,b)=>(Number(a.no)||0)-(Number(b.no)||0)).map(s=>{
+    const total=Number(s.total)||0;
+    const rank=rankByNo.get(Number(s.no))||6;
+    const {g,c}=getGrade(total);
+    const shownGrade=s.displayGrade||g;
+    const shownStars=s.displayStars||getStars(rank);
+    const scoreColor=s.displayScoreColor||c;
+    const gradeColor=s.displayGradeColor||c;
+    const barColor=s.displayBarColor||scoreColor;
+    const starsColor=s.displayStarsColor||'var(--text3)';
+    const shownTotal=s.displayTotal||total.toFixed(1);
+    const boatNo=Number(s.no)||'';
+    const name=esc(s.displayName||s.name||'');
+    const bar=Math.min(100,Math.max(0,total/maxTotal*100));
+    return `<div class="score-cell" style="min-width:0;">
+      <div class="flex align-center justify-between" style="margin-bottom:2px;"><span class="bn bn${boatNo}">${boatNo}</span><span style="font-size:.62rem;font-weight:700;color:${gradeColor};">${esc(shownGrade)}</span></div>
+      <div class="score-total" style="color:${scoreColor};">${esc(shownTotal)}</div>
+      <div class="mbar" style="width:100%;margin-top:3px;"><div class="mfill" style="width:${bar}%;background:${barColor};"></div></div>
+      <div style="font-size:.58rem;color:${starsColor};margin-top:2px;">${esc(shownStars)}</div>
+      <div class="text-xs text-muted" title="${name}" style="margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.6rem;">${name||'選手名なし'}</div>
+    </div>`;
+  }).join('');
+  return `<div style="margin:8px 0;padding:8px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;">
+    <div style="font-size:.72rem;font-weight:700;margin-bottom:6px;">📊 予想時の各艇スコア <span class="text-xs text-muted" style="font-weight:400;">（保存時点）</span></div>
+    <div class="score-grid" style="grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;">${rows}</div>
+  </div>`;
+}
+
 function renderHistory(){
   const hist=getHistory();
   const el=document.getElementById('histList');
@@ -3687,31 +4013,32 @@ function renderHistory(){
   el.innerHTML=hist.map(h=>{
     const dt=new Date(h.datetime);
     const dtStr=`${dt.getMonth()+1}/${dt.getDate()} ${dt.getHours()}:${String(dt.getMinutes()).padStart(2,'0')}`;
-    const stCls=h.hit===true?'badge-hit':h.hit===false?'badge-miss':'badge-pend';
-    const stTxt=h.hit===true?'🎯 的中':h.hit===false?'❌ ハズレ':'未確認';
-    const picks=(h.picks||[]).map(p=>`<span style="font-size:.7rem;background:var(--bg4);padding:2px 5px;border-radius:3px;">${p.boats.join('-')}</span>`).join(' ');
-    // 投資額: 履歴に保存済みの値を使う（設定変更時は自動更新済み）
-    const invest=h.invest||(h.picks?.length||cfg.points)*cfg.unitAmt;
-    const profit=(h.payout||0)-invest;
+    const triPicks=h.picks||[];
+    const exactaPicks=h.picks2||[];
+    const triInvest=h.invest||(triPicks.length*cfg.unitAmt);
+    const exactaInvest=h.invest2||(exactaPicks.length*cfg.unitAmt);
+    const triStatus=h.hit===true?'🎯 的中':h.hit===false?'❌ ハズレ':'未確認';
+    const exStatus=h.hit2===true?'🎯 的中':h.hit2===false?'❌ ハズレ':'未確認';
+    const chips=arr=>(arr||[]).map(p=>`<span style="font-size:.7rem;background:var(--bg4);padding:2px 5px;border-radius:3px;">${p.boats.join('-')}</span>`).join(' ');
+    const triProfit=(h.payout||0)-triInvest;
+    const exProfit=(h.payout2||0)-exactaInvest;
     return `<div class="hist-item">
-      <div class="flex justify-between align-center mb1">
-        <div><span style="font-weight:600;">${h.venue} ${h.race}R</span> <span class="text-xs text-muted">${dtStr}</span></div>
-        <div class="flex gap1 align-center">
-          <span class="badge ${stCls}">三連単${stTxt}</span>
-          <button class="btn btn-sm" style="background:var(--bg4);color:var(--text3);" onclick="deleteHistory(${h.id})">✕</button>
-        </div>
-      </div>
-      <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:.5rem;">${picks}</div>
-      <div class="flex gap1 align-center" style="flex-wrap:wrap;">
+      <div class="flex justify-between align-center mb1"><div><span style="font-weight:600;">${h.venue} ${h.race}R</span> <span class="text-xs text-muted">${dtStr}</span></div><button class="btn btn-sm" style="background:var(--bg4);color:var(--text3);" onclick="deleteHistory(${h.id})">✕</button></div>
+      <div style="font-size:.72rem;font-weight:700;margin:5px 0 3px;">三連単 ${triStatus} · ${triPicks.length}点</div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:.5rem;">${chips(triPicks)}</div>
+      ${exactaPicks.length?`<div style="font-size:.72rem;font-weight:700;margin:7px 0 3px;">二連単 ${exStatus} · ${exactaPicks.length}点</div><div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:.5rem;">${chips(exactaPicks)}</div>`:''}
+      ${renderHistoryBoatScores(h)}
+      ${renderHistoryRaceInfo(h)}
+      <div class="flex gap1 align-center" style="flex-wrap:wrap;margin-top:6px;">
         <input type="text" placeholder="着順 1-3-2" style="width:100px;flex-shrink:0;" id="ord-${h.id}" value="${h.resultOrder||''}">
-        <input type="number" placeholder="払戻(円)" style="width:90px;flex-shrink:0;" id="pay-${h.id}" value="${h.payout||''}">
-        <span class="text-xs text-muted">投資: ${invest.toLocaleString()}円</span>
-        <button class="btn btn-sm btn-success" onclick="updateResult(${h.id})">保存</button>
+        <span class="text-xs text-muted">実際の着順</span>
       </div>
-      ${h.resultOrder||h.payout>0?`<div class="text-xs mt1" style="color:${h.hit===true?'var(--teal)':h.hit===false?'var(--red)':'var(--text2)'};">
-        ${h.resultOrder?`着順:${h.resultOrder}　`:''}払戻:${(h.payout||0).toLocaleString()}円　
-        損益:<b style="color:${profit>=0?'var(--teal)':'var(--red)'}">${profit>=0?'+':''}${profit.toLocaleString()}円</b>
-      </div>`:''}
+      <div class="flex gap1 align-center" style="flex-wrap:wrap;margin-top:6px;">
+        <label style="font-size:.7rem;">三連単払戻</label><input type="number" placeholder="円" style="width:85px;flex-shrink:0;" id="pay-${h.id}" value="${h.payout||''}">
+        <span class="text-xs text-muted">投資 ${triInvest.toLocaleString()}円 / 損益 <b style="color:${triProfit>=0?'var(--teal)':'var(--red)'}">${triProfit>=0?'+':''}${triProfit.toLocaleString()}円</b></span>
+      </div>
+      ${exactaPicks.length?`<div class="flex gap1 align-center" style="flex-wrap:wrap;margin-top:6px;"><label style="font-size:.7rem;">二連単払戻</label><input type="number" placeholder="円" style="width:85px;flex-shrink:0;" id="pay2-${h.id}" value="${h.payout2||''}"><span class="text-xs text-muted">投資 ${exactaInvest.toLocaleString()}円 / 損益 <b style="color:${exProfit>=0?'var(--teal)':'var(--red)'}">${exProfit>=0?'+':''}${exProfit.toLocaleString()}円</b></span></div>`:''}
+      <div style="margin-top:7px;"><button class="btn btn-sm btn-success" onclick="updateResult(${h.id})">着順・払戻を保存</button></div>
       ${h.selfAnalysis?renderSelfAnalysis(h.selfAnalysis):''}
     </div>`;
   }).join('');
@@ -3723,42 +4050,26 @@ function updateResult(id){
   if(i===-1) return;
   const orderRaw=(document.getElementById(`ord-${id}`)?.value||'').trim();
   const payRaw=document.getElementById(`pay-${id}`)?.value;
+  const pay2Raw=document.getElementById(`pay2-${id}`)?.value;
   const pay=payRaw===''||payRaw==null?0:parseInt(payRaw)||0;
-
+  const pay2=pay2Raw===''||pay2Raw==null?0:parseInt(pay2Raw)||0;
   hist[i].resultOrder=orderRaw;
   hist[i].payout=pay;
-
-  if(!orderRaw){
-    hist[i].hit=null;
-    hist[i].selfAnalysis=null;
-  } else {
+  if((hist[i].picks2||[]).length) hist[i].payout2=pay2;
+  if(!orderRaw){hist[i].hit=null;hist[i].hit2=null;hist[i].selfAnalysis=null;}
+  else {
     const order=orderRaw.split(/[-,\s]+/).map(n=>parseInt(n)).filter(n=>!isNaN(n));
-    if(order.length<3){
-      alert('着順は「1-3-2」のように3つの艇番をハイフン区切りで入力してください');
-      hist[i].hit=null;
-    } else {
-      const picks=hist[i].picks||[];
-      const isHit=picks.some(p=>
-        p.boats&&p.boats.length===3&&
-        p.boats[0]===order[0]&&p.boats[1]===order[1]&&p.boats[2]===order[2]
-      );
-      hist[i].hit=isHit;
-
-      // 自己分析をここで実行（histは既に更新済みのものを渡す）
-      try{
-        const analysis=selfAnalyzeRace(id, isHit, orderRaw, pay);
-        // selfAnalyzeRaceはreturnするだけなので、ここでhistに代入
-        hist[i].selfAnalysis=analysis||null;
-      }catch(e){
-        console.warn('自己分析エラー:', e.message);
-        hist[i].selfAnalysis=null;
-      }
-
-      if(!isHit&&pay>0) alert('着順は予想10点のいずれとも一致しないため「ハズレ」として記録します。');
-      if(isHit&&pay===0){ if(!confirm('的中しています。払戻0円のままですが保存しますか？')) return; }
+    if(order.length<3||order.some(n=>n<1||n>6)||new Set(order.slice(0,3)).size<3){
+      alert('着順は「1-3-2」のように異なる艇番3つをハイフン区切りで入力してください');return;
     }
+    const picks=hist[i].picks||[];
+    hist[i].hit=picks.some(p=>p.boats&&p.boats.length===3&&p.boats[0]===order[0]&&p.boats[1]===order[1]&&p.boats[2]===order[2]);
+    if((hist[i].picks2||[]).length){
+      hist[i].hit2=hist[i].picks2.some(p=>p.boats&&p.boats.length===2&&p.boats[0]===order[0]&&p.boats[1]===order[1]);
+    }
+    try{hist[i].selfAnalysis=selfAnalyzeRace(id,hist[i].hit,orderRaw,pay)||null;}catch(e){console.warn('自己分析エラー:',e.message);hist[i].selfAnalysis=null;}
+    if(!hist[i].hit&&pay>0) alert(`三連単は保存された${picks.length}点のいずれとも一致しないため「ハズレ」として記録します。`);
   }
-  // selfAnalysisを含めた状態で一度だけ保存
   localStorage.setItem('brHistory',JSON.stringify(hist));
   autoAdjustWeights();
   renderHistory();
@@ -3841,23 +4152,25 @@ function importHistory(file){
 function initStats(){
   const cfg=getPurchaseConfig();
   const hist=getHistory();
+  const exactaConfirmed=hist.filter(h=>Array.isArray(h.picks2)&&h.picks2.length>0&&h.hit2!==null&&h.hit2!==undefined);
+  const exactaHits=exactaConfirmed.filter(h=>h.hit2===true);
+  const exInvest=exactaConfirmed.reduce((sum,h)=>sum+(h.invest2||(h.picks2.length*cfg.unitAmt)),0);
+  const exPayout=exactaConfirmed.reduce((sum,h)=>sum+(h.payout2||0),0);
+  const exProfit=exPayout-exInvest;
+  const exRoi=exInvest>0?(exPayout/exInvest*100):0;
+  const exPending=hist.filter(h=>Array.isArray(h.picks2)&&h.picks2.length>0&&(h.hit2===null||h.hit2===undefined)).length;
+  const exEl=document.getElementById('exactaStatsSummary');
+  if(exEl){
+    const exRate=exactaConfirmed.length?(exactaHits.length/exactaConfirmed.length*100):0;
+    exEl.innerHTML=`<div class="stat-grid"><div class="stat-card"><div class="stat-val">${exactaConfirmed.length}</div><div class="stat-lbl">結果入力済み</div></div><div class="stat-card"><div class="stat-val ${exactaHits.length?'stat-pos':'stat-neu'}">${exactaHits.length}</div><div class="stat-lbl">的中数</div></div><div class="stat-card"><div class="stat-val">${exRate.toFixed(1)}%</div><div class="stat-lbl">的中率</div></div><div class="stat-card"><div class="stat-val">${exInvest.toLocaleString()}円</div><div class="stat-lbl">投資総額</div></div><div class="stat-card"><div class="stat-val">${exPayout.toLocaleString()}円</div><div class="stat-lbl">払戻総額</div></div><div class="stat-card"><div class="stat-val ${exProfit>=0?'stat-pos':'stat-neg'}">${exProfit>=0?'+':''}${exProfit.toLocaleString()}円</div><div class="stat-lbl">損益</div></div><div class="stat-card"><div class="stat-val ${exRoi>=100?'stat-pos':'stat-neg'}">${exRoi.toFixed(1)}%</div><div class="stat-lbl">回収率</div></div><div class="stat-card"><div class="stat-val">${exPending}</div><div class="stat-lbl">結果未入力</div></div></div><div style="font-size:.7rem;color:var(--text3);margin-top:5px;">二連単の成績は三連単と別々に集計。旧履歴には二連単データがないため、追加後に保存した予想から集計します。</div>`;
+  }
 
-  // ━━ 全履歴のinvestを強制修正 ━━
-  // 正しい計算: picks.length(実際の予想点数) × unitAmt(1点の購入金額)
-  // 例: 10点 × 100円 = 1,000円
-  let fixed=false;
-  hist.forEach(h=>{
-    if(h.picks && h.picks.length>0){
-      const correct = h.picks.length * cfg.unitAmt;
-      if(h.invest !== correct){ h.invest=correct; fixed=true; }
-    } else {
-      if(h.invest){ h.invest=0; fixed=true; }
-    }
-  });
-  if(fixed) localStorage.setItem('brHistory',JSON.stringify(hist));
+  // 過去レースの投資額は保存値を使用する。
+  // 現在の購入設定を変更しても、過去の投資額・損益を勝手に書き換えない。
 
   // ━━ 集計: 着順入力済み（hit確定）レースのみ ━━
-  const confirmed = hist.filter(h=>h.hit!==null);
+  const triHist = hist;
+  const confirmed = triHist.filter(h=>h.hit!==null);
   const hits      = confirmed.filter(h=>h.hit===true);
   const total     = confirmed.length;
   const hitRate   = total>0?((hits.length/total)*100).toFixed(1):'0.0';
@@ -3867,18 +4180,37 @@ function initStats(){
   const profit  = payout-invest;
   const roi     = invest>0?((payout/invest)*100).toFixed(1):'0.0';
 
-  const pending       = hist.filter(h=>h.hit===null&&(h.picks?.length||0)>0).length;
-  const pendingInvest = hist.filter(h=>h.hit===null&&(h.picks?.length||0)>0)
+  const pending       = triHist.filter(h=>h.hit===null&&(h.picks?.length||0)>0).length;
+  const pendingInvest = triHist.filter(h=>h.hit===null&&(h.picks?.length||0)>0)
                             .reduce((s,h)=>s+(h.invest||0),0);
 
+  const profitSummary=document.getElementById('profitSummary');
+  if(profitSummary){
+    const state=profit>0?'is-positive':profit<0?'is-negative':'is-even';
+    const stateLabel=profit>0?'プラス収支':profit<0?'マイナス収支':'収支ゼロ';
+    const amountLabel=`${profit>0?'+':profit<0?'−':'±'}${Math.abs(profit).toLocaleString()}円`;
+    profitSummary.className=`profit-summary ${state}`;
+    profitSummary.innerHTML=`
+      <div class="profit-topline">
+        <div class="profit-heading">累計収支 · ${total}レース結果入力済み</div>
+        <div class="profit-status ${profit>0?'stat-pos':profit<0?'stat-neg':'stat-neu'}">${profit>0?'▲ 勝ち越し':profit<0?'▼ 負け越し':'＝ 収支ゼロ'}</div>
+      </div>
+      <div class="profit-amount ${profit>0?'stat-pos':profit<0?'stat-neg':'stat-neu'}">${amountLabel}</div>
+      <div class="profit-breakdown">
+        <div class="profit-metric"><div class="profit-metric-label">払戻総額</div><div class="profit-metric-value">${payout.toLocaleString()}円</div></div>
+        <div class="profit-minus">−</div>
+        <div class="profit-metric"><div class="profit-metric-label">投資総額</div><div class="profit-metric-value">${invest.toLocaleString()}円</div></div>
+      </div>
+      <div class="profit-note">計算方法：払戻総額 − 投資総額。的中数・的中率とは別に、実際の投資額と払戻金で勝ち負けを判定します。</div>`;
+  }
+
   document.getElementById('statGrid').innerHTML=`
-    <div class="stat-card"><div class="stat-val stat-neu">${total}</div><div class="stat-lbl">確定レース数</div></div>
+    <div class="stat-card"><div class="stat-val stat-neu">${total}</div><div class="stat-lbl">結果入力済みレース</div></div>
     <div class="stat-card"><div class="stat-val ${hits.length>0?'stat-pos':'stat-neu'}">${hits.length}</div><div class="stat-lbl">的中数</div></div>
     <div class="stat-card"><div class="stat-val stat-neu">${hitRate}%</div><div class="stat-lbl">的中率</div></div>
     <div class="stat-card">
       <div class="stat-val stat-neu">${invest.toLocaleString()}円</div>
       <div class="stat-lbl">投資総額</div>
-      <div style="font-size:.6rem;color:var(--text3);margin-top:2px;">${total}R × ${cfg.unitAmt}円</div>
       ${pendingInvest>0?`<div style="font-size:.6rem;color:var(--text3);">未確定: ${pendingInvest.toLocaleString()}円</div>`:''}
     </div>
     <div class="stat-card"><div class="stat-val ${payout>0?'stat-pos':'stat-neu'}">${payout.toLocaleString()}円</div><div class="stat-lbl">払戻総額</div></div>
